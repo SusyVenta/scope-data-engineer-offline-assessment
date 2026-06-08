@@ -216,3 +216,6 @@ coverage_html/
 # Airflow
 
 /logs
+
+# Allow committed pipeline execution log examples in deliverable artefacts
+!_deliverable_artefacts/airflow_logs/**/*.log

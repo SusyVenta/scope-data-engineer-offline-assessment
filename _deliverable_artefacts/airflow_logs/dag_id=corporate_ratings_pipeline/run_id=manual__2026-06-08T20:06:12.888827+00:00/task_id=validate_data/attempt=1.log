@@ -1,0 +1,47 @@
+[2026-06-08T20:06:15.399+0000] {local_task_job_runner.py:120} INFO - ::group::Pre task execution logs
+[2026-06-08T20:06:15.409+0000] {taskinstance.py:2076} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: corporate_ratings_pipeline.validate_data manual__2026-06-08T20:06:12.888827+00:00 [queued]>
+[2026-06-08T20:06:15.412+0000] {taskinstance.py:2076} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: corporate_ratings_pipeline.validate_data manual__2026-06-08T20:06:12.888827+00:00 [queued]>
+[2026-06-08T20:06:15.412+0000] {taskinstance.py:2306} INFO - Starting attempt 1 of 2
+[2026-06-08T20:06:15.415+0000] {taskinstance.py:2330} INFO - Executing <Task(PythonOperator): validate_data> on 2026-06-08 20:06:12.888827+00:00
+[2026-06-08T20:06:15.417+0000] {logging_mixin.py:188} WARNING - /home/***/.local/lib/python3.12/site-packages/***/task/task_runner/standard_task_runner.py:62 DeprecationWarning: This process (pid=188) is multi-threaded, use of fork() may lead to deadlocks in the child.
+[2026-06-08T20:06:15.417+0000] {standard_task_runner.py:64} INFO - Started process 189 to run task
+[2026-06-08T20:06:15.417+0000] {standard_task_runner.py:90} INFO - Running: ['***', 'tasks', 'run', 'corporate_ratings_pipeline', 'validate_data', 'manual__2026-06-08T20:06:12.888827+00:00', '--job-id', '4', '--raw', '--subdir', 'DAGS_FOLDER/corporate_ratings_dag.py', '--cfg-path', '/tmp/tmp61r0yjqm']
+[2026-06-08T20:06:15.418+0000] {standard_task_runner.py:91} INFO - Job 4: Subtask validate_data
+[2026-06-08T20:06:15.433+0000] {task_command.py:426} INFO - Running <TaskInstance: corporate_ratings_pipeline.validate_data manual__2026-06-08T20:06:12.888827+00:00 [running]> on host ***-scheduler
+[2026-06-08T20:06:15.457+0000] {taskinstance.py:2648} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='data_engineering' AIRFLOW_CTX_DAG_ID='corporate_ratings_pipeline' AIRFLOW_CTX_TASK_ID='validate_data' AIRFLOW_CTX_EXECUTION_DATE='2026-06-08T20:06:12.888827+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2026-06-08T20:06:12.888827+00:00'
+[2026-06-08T20:06:15.457+0000] {taskinstance.py:430} INFO - ::endgroup::
+[2026-06-08T20:06:15.606+0000] {corporate_ratings_dag.py:160} INFO - [validate]
+╔══════════════════════════════════════════════════════════════════════╗
+║                         DATA QUALITY REPORT                          ║
+║  Run: manual__2026-06-08T20:06:12.888827+00:00                       ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  ✓  4 file(s) processed  │  all files passed  │  ⚠ 0 warning(s)  │  ✗ 0 critical
+
+┌─ 1/4 · corporates_A_1.xlsm · Company A ──────────────────────────────┐
+│  ✓ PASSED    30/30 checks   Validity: 100.0%   Completeness: 100.0%  │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌─ 2/4 · corporates_A_2.xlsm · Company A ──────────────────────────────┐
+│  ✓ PASSED    30/30 checks   Validity: 100.0%   Completeness: 100.0%  │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌─ 3/4 · corporates_B_1.xlsm · Company B ──────────────────────────────┐
+│  ✓ PASSED    30/30 checks   Validity: 100.0%   Completeness: 100.0%  │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌─ 4/4 · corporates_B_2.xlsm · Company B ──────────────────────────────┐
+│  ✓ PASSED    30/30 checks   Validity: 100.0%   Completeness: 100.0%  │
+└──────────────────────────────────────────────────────────────────────┘
+
+────────────────────────────────────────────────────────────────────────
+  Checks: 120   Passed: 120 (100.0%)   Warnings: 0   Critical: 0
+
+  ✓ Pipeline may proceed
+────────────────────────────────────────────────────────────────────────
+[2026-06-08T20:06:15.606+0000] {python.py:237} INFO - Done. Returned value was: None
+[2026-06-08T20:06:15.606+0000] {taskinstance.py:441} INFO - ::group::Post task execution logs
+[2026-06-08T20:06:15.609+0000] {taskinstance.py:1206} INFO - Marking task as SUCCESS. dag_id=corporate_ratings_pipeline, task_id=validate_data, run_id=manual__2026-06-08T20:06:12.888827+00:00, execution_date=20260608T200612, start_date=20260608T200615, end_date=20260608T200615
+[2026-06-08T20:06:15.645+0000] {local_task_job_runner.py:243} INFO - Task exited with return code 0
+[2026-06-08T20:06:15.654+0000] {taskinstance.py:3503} INFO - 1 downstream tasks scheduled from follow-on schedule check
+[2026-06-08T20:06:15.654+0000] {local_task_job_runner.py:222} INFO - ::endgroup::

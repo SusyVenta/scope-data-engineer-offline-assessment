@@ -1,0 +1,161 @@
+[2026-06-08T20:05:45.300+0000] {manager.py:470} INFO - Processing files using up to 2 processes at a time 
+[2026-06-08T20:05:45.300+0000] {manager.py:471} INFO - Process each file at most once every 30 seconds
+[2026-06-08T20:05:45.300+0000] {manager.py:472} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-06-08T20:05:45.300+0000] {manager.py:737} INFO - Searching for files in /opt/airflow/dags
+[2026-06-08T20:05:45.305+0000] {manager.py:740} INFO - There are 2 files in /opt/airflow/dags
+[2026-06-08T20:05:45.400+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  ----------
+/opt/airflow/dags/corporate_ratings_dag_integration.py    175  0.03s             0           0
+/opt/airflow/dags/corporate_ratings_dag.py                172  0.03s             0           0
+================================================================================
+[2026-06-08T20:05:45.902+0000] {manager.py:1016} ERROR - Processor for /opt/airflow/dags/corporate_ratings_dag_integration.py exited with return code 1.
+[2026-06-08T20:06:15.797+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           0          -1  0.53s           2026-06-08T20:05:45
+/opt/airflow/dags/corporate_ratings_dag.py                191  0.00s             1           0  0.24s           2026-06-08T20:05:45
+================================================================================
+[2026-06-08T20:06:46.035+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.06s           2026-06-08T20:06:16
+/opt/airflow/dags/corporate_ratings_dag.py                228  0.01s             1           0  0.05s           2026-06-08T20:06:15
+================================================================================
+[2026-06-08T20:07:16.247+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                245  0.01s             1           0  0.08s           2026-06-08T20:06:46
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.04s           2026-06-08T20:06:47
+================================================================================
+[2026-06-08T20:07:46.474+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                262  0.00s             1           0  0.12s           2026-06-08T20:07:16
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.07s           2026-06-08T20:07:17
+================================================================================
+[2026-06-08T20:08:16.713+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.08s           2026-06-08T20:07:47
+/opt/airflow/dags/corporate_ratings_dag.py                279  0.01s             1           0  0.05s           2026-06-08T20:07:46
+================================================================================
+[2026-06-08T20:08:46.956+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.07s           2026-06-08T20:08:17
+/opt/airflow/dags/corporate_ratings_dag.py                296  0.01s             1           0  0.06s           2026-06-08T20:08:16
+================================================================================
+[2026-06-08T20:09:17.179+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                313  0.00s             1           0  0.10s           2026-06-08T20:08:47
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.04s           2026-06-08T20:08:48
+================================================================================
+[2026-06-08T20:09:47.409+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.07s           2026-06-08T20:09:18
+/opt/airflow/dags/corporate_ratings_dag.py                330  0.00s             1           0  0.05s           2026-06-08T20:09:17
+================================================================================
+[2026-06-08T20:10:17.630+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.06s           2026-06-08T20:09:48
+/opt/airflow/dags/corporate_ratings_dag.py                347  0.00s             1           0  0.03s           2026-06-08T20:09:47
+================================================================================
+[2026-06-08T20:10:45.823+0000] {manager.py:737} INFO - Searching for files in /opt/airflow/dags
+[2026-06-08T20:10:45.832+0000] {manager.py:740} INFO - There are 2 files in /opt/airflow/dags
+[2026-06-08T20:10:47.862+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                364  0.00s             1           0  0.08s           2026-06-08T20:10:17
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.04s           2026-06-08T20:10:18
+================================================================================
+[2026-06-08T20:11:18.098+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.08s           2026-06-08T20:10:48
+/opt/airflow/dags/corporate_ratings_dag.py                381  0.00s             1           0  0.05s           2026-06-08T20:10:47
+================================================================================
+[2026-06-08T20:11:48.360+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.06s           2026-06-08T20:11:19
+/opt/airflow/dags/corporate_ratings_dag.py                398  0.00s             1           0  0.03s           2026-06-08T20:11:18
+================================================================================
+[2026-06-08T20:12:18.581+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                415  0.01s             1           0  0.09s           2026-06-08T20:11:48
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.07s           2026-06-08T20:11:49
+================================================================================
+[2026-06-08T20:12:48.824+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.10s           2026-06-08T20:12:19
+/opt/airflow/dags/corporate_ratings_dag.py                432  0.01s             1           0  0.07s           2026-06-08T20:12:18
+================================================================================
+[2026-06-08T20:13:19.066+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.07s           2026-06-08T20:12:49
+/opt/airflow/dags/corporate_ratings_dag.py                449  0.00s             1           0  0.07s           2026-06-08T20:12:48
+================================================================================
+[2026-06-08T20:13:49.249+0000] {manager.py:878} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run
+------------------------------------------------------  -----  ---------  --------  ----------  --------------  -------------------
+/opt/airflow/dags/corporate_ratings_dag.py                466  0.01s             1           0  0.10s           2026-06-08T20:13:19
+/opt/airflow/dags/corporate_ratings_dag_integration.py                           2           0  0.04s           2026-06-08T20:13:20
+================================================================================
