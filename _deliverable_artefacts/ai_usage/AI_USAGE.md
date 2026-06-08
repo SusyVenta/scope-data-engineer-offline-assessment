@@ -9,32 +9,37 @@ Please complete the sections below honestly. Using AI tools is **acceptable and 
 ## 1. AI Tools Used
 List all AI coding assistants used.
 
+Claude Code extension in VS. 
 
 ## 2. Components Assisted
 Check which parts received AI assistance:
 
-- [ ] Data extraction logic (Excel parsing, MASTER sheet)
-- [ ] Data modeling design (ERD, table schemas, SCD Type 2)
-- [ ] ETL pipeline implementation
-- [ ] Data validation framework
-- [ ] API endpoint development (FastAPI)
-- [ ] Docker/Docker Compose configuration
-- [ ] SQL queries and migrations
-- [ ] Testing (unit/integration tests)
-- [ ] Documentation (README, comments)
-- [ ] Debugging specific issues
+- [x ] Data extraction logic (Excel parsing, MASTER sheet)
+- [x ] Data modeling design (ERD, table schemas, SCD Type 2)
+- [x ] ETL pipeline implementation
+- [x ] Data validation framework
+- [x ] API endpoint development (FastAPI)
+- [x ] Docker/Docker Compose configuration
+- [x ] SQL queries and migrations
+- [x ] Testing (unit/integration tests)
+- [x ] Documentation (README, comments)
+- [x ] Debugging specific issues
 - [ ] Other: ___________
 
 
 ## 3. Detailed Description
 For each major component, describe how AI assisted.
 
+You can see all the step by step development in `ai_usage/claude_chat_log.md`. I saved every single command and linked to commits at each stage.
+
+For all components AI wrote a first draft, based on the original requirements. 
+I have reviewed the first draft, reprompted where necessary, did manual adjustments where Claude was overcomplicating - especially in the data model it went nuts so I mostly did that myself.
 
 ## 4. Chat History / Logs
 Attach or link to chat history logs showing AI interactions.
 
 **Format:** PDF, Markdown, screenshots, or text files
-**Location:** [Provide links or attach files here]
+**Location:** `ai_usage/claude_chat_log.md`
 
 **Note:** You may redact personal information but maintain enough context to show the AI interaction.
 
@@ -43,6 +48,8 @@ Attach or link to chat history logs showing AI interactions.
 Reflect on your AI usage:
 
 **What did AI do well?**
+
+AI did great at creating a first version of the project given the list of requirements and [an existing repository on my Github](https://github.com/SusyVenta/sample-airflow-ingestion-pipeline) that I used as a starting template. 
 
 **What did you need to correct or override?**
 

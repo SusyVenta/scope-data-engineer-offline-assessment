@@ -11,11 +11,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-class SectorOut(BaseModel):
-    sector_id: int
-    sector_name: str
-
-
 class CompanyVersionOut(BaseModel):
     company_id: int
     entity_name: str
@@ -92,3 +87,14 @@ class UploadStatsOut(BaseModel):
 class CompareOut(BaseModel):
     as_of_date: datetime | None
     companies: list[SnapshotOut]
+
+
+class ScopeCreditMetricOut(BaseModel):
+    scope_credit_id: int
+    company_id: int
+    upload_id: int
+    entity_name: str | None
+    metric_name: str
+    year: str
+    metric_value: str | None
+    loaded_at_utc: datetime

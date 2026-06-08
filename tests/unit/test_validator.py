@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from corporate_pipeline.extractor import RawMasterRecord
 from corporate_pipeline.validator import (
+    EXPECTED_SCOPE_METRICS,
+    KNOWN_ACCOUNTING_PRINCIPLES,
     ValidationResult,
+    format_quality_report,
     generate_quality_report,
     is_valid,
     validate_record,
@@ -333,6 +336,189 @@ class TestGenerateQualityReport:
             _valid_record(rated_entity=None, currency="x", industry_weight_1=None)
         ))
         assert bad["validity_pct"] < good["validity_pct"]
+
+
+# ---------------------------------------------------------------------------
+# New rule: accounting principles
+# ---------------------------------------------------------------------------
+
+class TestAccountingPrinciplesCheck:
+    def test_ifrs_passes(self) -> None:
+        results = validate_record(_valid_record(accounting_principles="IFRS"))
+        failures = [r for r in results if r.field == "accounting_principles" and r.rule == "known_framework" and not r.passed]
+        assert len(failures) == 0
+
+    def test_us_gaap_passes(self) -> None:
+        results = validate_record(_valid_record(accounting_principles="US GAAP"))
+        failures = [r for r in results if r.field == "accounting_principles" and r.rule == "known_framework" and not r.passed]
+        assert len(failures) == 0
+
+    def test_all_known_principles_pass(self) -> None:
+        for p in KNOWN_ACCOUNTING_PRINCIPLES:
+            results = validate_record(_valid_record(accounting_principles=p))
+            fails = [r for r in results if r.field == "accounting_principles" and r.rule == "known_framework" and not r.passed]
+            assert len(fails) == 0, f"'{p}' should be accepted"
+
+    def test_unknown_framework_warns(self) -> None:
+        results = validate_record(_valid_record(accounting_principles="JGAAP"))
+        failures = [r for r in results if r.field == "accounting_principles" and not r.passed]
+        assert len(failures) == 1
+        assert failures[0].severity == "WARNING"
+
+    def test_unknown_framework_does_not_block_pipeline(self) -> None:
+        results = validate_record(_valid_record(accounting_principles="JGAAP"))
+        assert is_valid(results)
+
+
+# ---------------------------------------------------------------------------
+# New rule: dual risk consistency
+# ---------------------------------------------------------------------------
+
+class TestDualRiskConsistency:
+    def test_both_absent_passes(self) -> None:
+        results = validate_record(_valid_record(industry_risk_2=None, industry_weight_2=None))
+        failures = [r for r in results if r.rule == "dual_risk_consistency" and not r.passed]
+        assert len(failures) == 0
+
+    def test_both_present_passes(self) -> None:
+        results = validate_record(_valid_record(
+            industry_risk_2="Consumer Goods", industry_weight_2=0.3,
+            industry_weight_1=0.7,
+        ))
+        failures = [r for r in results if r.rule == "dual_risk_consistency" and not r.passed]
+        assert len(failures) == 0
+
+    def test_risk_without_weight_warns(self) -> None:
+        results = validate_record(_valid_record(industry_risk_2="Consumer Goods", industry_weight_2=None))
+        failures = [r for r in results if r.rule == "dual_risk_consistency" and not r.passed]
+        assert len(failures) == 1
+        assert failures[0].severity == "WARNING"
+
+    def test_weight_without_risk_warns(self) -> None:
+        results = validate_record(_valid_record(industry_risk_2=None, industry_weight_2=0.3))
+        failures = [r for r in results if r.rule == "dual_risk_consistency" and not r.passed]
+        assert len(failures) == 1
+        assert failures[0].severity == "WARNING"
+
+    def test_dual_risk_inconsistency_does_not_block_pipeline(self) -> None:
+        results = validate_record(_valid_record(industry_risk_2="X", industry_weight_2=None))
+        assert is_valid(results)
+
+
+# ---------------------------------------------------------------------------
+# New rule: scope metrics coverage
+# ---------------------------------------------------------------------------
+
+class TestScopeMetricsCoverage:
+    def test_all_expected_metrics_passes(self) -> None:
+        full_metrics = {m: {"2022": "1.0"} for m in EXPECTED_SCOPE_METRICS}
+        results = validate_record(_valid_record(scope_credit_metrics=full_metrics))
+        failures = [r for r in results if r.rule == "metrics_coverage" and not r.passed]
+        assert len(failures) == 0
+
+    def test_empty_metrics_warns(self) -> None:
+        results = validate_record(_valid_record(scope_credit_metrics={}))
+        failures = [r for r in results if r.rule == "metrics_coverage" and not r.passed]
+        assert len(failures) == 1
+        assert failures[0].severity == "WARNING"
+
+    def test_partial_metrics_warns(self) -> None:
+        partial = {EXPECTED_SCOPE_METRICS[0]: {"2022": "1.0"}}
+        results = validate_record(_valid_record(scope_credit_metrics=partial))
+        failures = [r for r in results if r.rule == "metrics_coverage" and not r.passed]
+        assert len(failures) == 1
+
+    def test_missing_metrics_does_not_block_pipeline(self) -> None:
+        results = validate_record(_valid_record(scope_credit_metrics={}))
+        assert is_valid(results)
+
+    def test_failure_message_names_missing_metrics(self) -> None:
+        partial = {EXPECTED_SCOPE_METRICS[0]: {"2022": "1.0"}}
+        results = validate_record(_valid_record(scope_credit_metrics=partial))
+        failure = next(r for r in results if r.rule == "metrics_coverage" and not r.passed)
+        assert "missing" in failure.message.lower()
+
+
+# ---------------------------------------------------------------------------
+# format_quality_report
+# ---------------------------------------------------------------------------
+
+def _make_report(entity="Company A", fname="test.xlsm", n_checks=30, failures=None) -> dict:
+    failures = failures or []
+    n_crit = sum(1 for f in failures if f["severity"] == "CRITICAL")
+    n_warn = sum(1 for f in failures if f["severity"] == "WARNING")
+    n_pass = n_checks - len(failures)
+    return {
+        "source_filename": fname,
+        "entity_name": entity,
+        "total_checks": n_checks,
+        "passed": n_pass,
+        "failed_critical": n_crit,
+        "failed_warning": n_warn,
+        "completeness_pct": 100.0,
+        "validity_pct": round(n_pass / n_checks * 100, 1),
+        "failures": failures,
+    }
+
+
+class TestFormatQualityReport:
+    def test_output_is_string(self) -> None:
+        report = format_quality_report([_make_report()])
+        assert isinstance(report, str)
+
+    def test_header_present(self) -> None:
+        report = format_quality_report([_make_report()], dag_run_id="run_001")
+        assert "DATA QUALITY REPORT" in report
+        assert "run_001" in report
+
+    def test_passed_file_shows_checkmark(self) -> None:
+        report = format_quality_report([_make_report()])
+        assert "✓" in report
+        assert "PASSED" in report
+
+    def test_critical_failure_shows_field_and_message(self) -> None:
+        failures = [{"field": "rated_entity", "rule": "not_null", "severity": "CRITICAL",
+                     "message": "rated_entity is required but missing"}]
+        report = format_quality_report([_make_report(failures=failures)])
+        assert "✗" in report
+        assert "rated_entity" in report
+        assert "Critical" in report
+
+    def test_warning_shows_in_output(self) -> None:
+        failures = [{"field": "liquidity_adjustment", "rule": "notch_format",
+                     "severity": "WARNING", "message": "bad format"}]
+        report = format_quality_report([_make_report(failures=failures)])
+        assert "⚠" in report
+        assert "Warnings" in report
+
+    def test_footer_shows_total_counts(self) -> None:
+        report = format_quality_report([_make_report(), _make_report(fname="b.xlsm", entity="Company B")])
+        assert "Checks:" in report
+        assert "Passed:" in report
+
+    def test_pipeline_halted_message_on_critical(self) -> None:
+        failures = [{"field": "currency", "rule": "iso3_format", "severity": "CRITICAL", "message": "bad"}]
+        report = format_quality_report([_make_report(failures=failures)])
+        assert "PIPELINE HALTED" in report
+
+    def test_may_proceed_message_when_clean(self) -> None:
+        report = format_quality_report([_make_report()])
+        assert "may proceed" in report
+
+    def test_entity_name_appears_in_card(self) -> None:
+        report = format_quality_report([_make_report(entity="Acme Corp")])
+        assert "Acme Corp" in report
+
+    def test_multiple_files_all_present(self) -> None:
+        reports = [
+            _make_report(entity="Company A", fname="a.xlsm"),
+            _make_report(entity="Company B", fname="b.xlsm"),
+        ]
+        output = format_quality_report(reports)
+        assert "Company A" in output
+        assert "Company B" in output
+        assert "1/2" in output
+        assert "2/2" in output
 
 
 # ---------------------------------------------------------------------------

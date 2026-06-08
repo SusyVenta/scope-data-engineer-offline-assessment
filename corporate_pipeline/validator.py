@@ -19,7 +19,7 @@ from corporate_pipeline.extractor import RawMasterRecord
 
 
 # ---------------------------------------------------------------------------
-# Rating scale
+# Rating scale and reference sets
 # ---------------------------------------------------------------------------
 
 RATING_SCALE: set[str] = {
@@ -31,6 +31,19 @@ RATING_SCALE: set[str] = {
     "CCC+", "CCC", "CCC-",
     "CC",   "C",   "D",
 }
+
+KNOWN_ACCOUNTING_PRINCIPLES: set[str] = {
+    "IFRS", "US GAAP", "HGB", "Swiss GAAP FER", "Local GAAP",
+}
+
+EXPECTED_SCOPE_METRICS: tuple[str, ...] = (
+    "Scope-adjusted debt/EBITDA",
+    "Scope-adjusted EBITDA interest cover",
+    "Scope-adjusted FFO/debt",
+    "Scope-adjusted FOCF/debt",
+    "Scope-adjusted loan/value",
+    "Liquidity (time-series)",
+)
 
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 _NOTCH_RE    = re.compile(r"^[+-]\d+ notch(es)?$")
@@ -169,6 +182,74 @@ def _check_liquidity_adjustment(value: str | None) -> ValidationResult:
     )
 
 
+def _check_accounting_principles(value: str | None) -> ValidationResult:
+    """Warn if the accounting framework is not in the known reference set."""
+    if value is None or str(value).strip() == "":
+        # The not_null check already raises CRITICAL; keep this one silent.
+        return ValidationResult(
+            field="accounting_principles", rule="known_framework",
+            passed=True, severity="WARNING",
+        )
+    passed = value.strip() in KNOWN_ACCOUNTING_PRINCIPLES
+    return ValidationResult(
+        field="accounting_principles",
+        rule="known_framework",
+        passed=passed,
+        severity="WARNING",
+        message=(
+            "" if passed
+            else (
+                f"accounting_principles '{value}' is not in the recognised set "
+                f"({', '.join(sorted(KNOWN_ACCOUNTING_PRINCIPLES))})"
+            )
+        ),
+    )
+
+
+def _check_dual_risk_consistency(
+    risk_2: str | None, weight_2: float | None
+) -> ValidationResult:
+    """Warn when risk_2 and weight_2 are not both set or both absent."""
+    risk_set   = risk_2 is not None and str(risk_2).strip() != ""
+    weight_set = weight_2 is not None
+    passed = risk_set == weight_set
+    if not passed:
+        if risk_set:
+            msg = f"industry_risk_2 '{risk_2}' is named but industry_weight_2 is missing"
+        else:
+            msg = f"industry_weight_2={weight_2} is set but industry_risk_2 has no name"
+    else:
+        msg = ""
+    return ValidationResult(
+        field="industry_risk_2",
+        rule="dual_risk_consistency",
+        passed=passed,
+        severity="WARNING",
+        message=msg,
+    )
+
+
+def _check_scope_metrics_coverage(scope_metrics: dict) -> ValidationResult:
+    """Warn when fewer than the expected Scope Credit Metrics are present."""
+    present  = set(scope_metrics or {})
+    expected = set(EXPECTED_SCOPE_METRICS)
+    missing  = expected - present
+    passed   = len(missing) == 0
+    return ValidationResult(
+        field="scope_credit_metrics",
+        rule="metrics_coverage",
+        passed=passed,
+        severity="WARNING",
+        message=(
+            "" if passed
+            else (
+                f"{len(present)}/{len(expected)} expected metrics present; "
+                f"missing: {', '.join(sorted(missing))}"
+            )
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main validation entry point
 # ---------------------------------------------------------------------------
@@ -225,6 +306,13 @@ def validate_record(record: RawMasterRecord) -> list[ValidationResult]:
     # Liquidity adjustment format
     results.append(_check_liquidity_adjustment(record.liquidity_adjustment))
 
+    # Cross-field consistency
+    results.append(_check_dual_risk_consistency(record.industry_risk_2, record.industry_weight_2))
+
+    # Framework and coverage checks
+    results.append(_check_accounting_principles(record.accounting_principles))
+    results.append(_check_scope_metrics_coverage(record.scope_credit_metrics))
+
     return results
 
 
@@ -240,11 +328,13 @@ def is_valid(results: list[ValidationResult]) -> bool:
 def generate_quality_report(
     results: list[ValidationResult],
     source_filename: str = "",
+    entity_name: str = "",
 ) -> dict:
     """Summarise validation results into a report dict.
 
     Keys:
       source_filename   – which file was validated
+      entity_name       – rated entity extracted from the file
       total_checks      – number of rules evaluated
       passed            – number that passed
       failed_critical   – CRITICAL failures (block loading)
@@ -265,6 +355,7 @@ def generate_quality_report(
 
     return {
         "source_filename": source_filename,
+        "entity_name": entity_name,
         "total_checks": total,
         "passed": passed_count,
         "failed_critical": len(critical_failures),
@@ -276,3 +367,134 @@ def generate_quality_report(
             for r in results if not r.passed
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Formatted text report
+# ---------------------------------------------------------------------------
+
+_W = 72  # report width including border characters
+
+
+def _content(text: str) -> str:
+    """Pad or truncate text to fit the inner box width."""
+    inner = _W - 2
+    if len(text) > inner:
+        text = text[: inner - 3] + "..."
+    return text.ljust(inner)
+
+
+def _failure_lines(f: dict) -> list[str]:
+    field_rule = f"    {f['field']} · {f['rule']}"
+    msg_text   = f"    → {f['message']}"
+    return [
+        "│" + _content(field_rule) + "│",
+        "│" + _content(msg_text)   + "│",
+    ]
+
+
+def format_quality_report(reports: list[dict], dag_run_id: str = "") -> str:
+    """Return a Unicode box-drawing quality report for logging.
+
+    Designed to be passed directly to a logger:
+        log.info("\\n%s", format_quality_report(reports, dag_run_id))
+    """
+    lines: list[str] = []
+
+    # ── Header ──────────────────────────────────────────────────────────
+    lines.append("╔" + "═" * (_W - 2) + "╗")
+    lines.append("║" + "DATA QUALITY REPORT".center(_W - 2) + "║")
+    if dag_run_id:
+        lines.append("║" + f"  Run: {dag_run_id}"[:_W - 2].ljust(_W - 2) + "║")
+    lines.append("╚" + "═" * (_W - 2) + "╝")
+    lines.append("")
+
+    # ── Run summary ─────────────────────────────────────────────────────
+    n_files    = len(reports)
+    n_critical = sum(r["failed_critical"] for r in reports)
+    n_warnings = sum(r["failed_warning"]  for r in reports)
+
+    if n_critical:
+        run_icon, run_label = "✗", f"{n_critical} critical failure(s) — pipeline halted"
+    elif n_warnings:
+        run_icon, run_label = "⚠", "all files passed  (warnings present)"
+    else:
+        run_icon, run_label = "✓", "all files passed"
+
+    lines.append(
+        f"  {run_icon}  {n_files} file(s) processed  │  {run_label}"
+        f"  │  ⚠ {n_warnings} warning(s)  │  ✗ {n_critical} critical"
+    )
+    lines.append("")
+
+    # ── Per-file cards ───────────────────────────────────────────────────
+    for i, r in enumerate(reports, 1):
+        fname        = r.get("source_filename", "")
+        entity       = r.get("entity_name") or "—"
+        n_crit       = r["failed_critical"]
+        n_warn       = r["failed_warning"]
+        n_checks     = r["total_checks"]
+        n_pass       = r["passed"]
+        validity     = r["validity_pct"]
+        completeness = r["completeness_pct"]
+        failures     = r.get("failures", [])
+
+        if n_crit:
+            s_icon, s_label = "✗", "FAILED "
+        elif n_warn:
+            s_icon, s_label = "⚠", "WARNING"
+        else:
+            s_icon, s_label = "✓", "PASSED "
+
+        # Card top border with title
+        title = f"─ {i}/{n_files} · {fname} · {entity} "
+        lines.append("┌" + title.ljust(_W - 2, "─") + "┐")
+
+        # Stats row
+        stats = (
+            f"  {s_icon} {s_label}   "
+            f"{n_pass:>2}/{n_checks} checks   "
+            f"Validity: {validity:>5.1f}%   "
+            f"Completeness: {completeness:>5.1f}%"
+        )
+        lines.append("│" + _content(stats) + "│")
+
+        # Failure details
+        crits = [f for f in failures if f["severity"] == "CRITICAL"]
+        warns = [f for f in failures if f["severity"] == "WARNING"]
+
+        if crits:
+            lines.append("├" + "─" * (_W - 2) + "┤")
+            lines.append("│" + _content("  ✗ Critical — fix before pipeline can proceed") + "│")
+            for f in crits:
+                lines.extend(_failure_lines(f))
+
+        if warns:
+            lines.append("├" + "─" * (_W - 2) + "┤")
+            lines.append("│" + _content("  ⚠ Warnings") + "│")
+            for f in warns:
+                lines.extend(_failure_lines(f))
+
+        lines.append("└" + "─" * (_W - 2) + "┘")
+        lines.append("")
+
+    # ── Footer ──────────────────────────────────────────────────────────
+    total_checks = sum(r["total_checks"] for r in reports)
+    total_passed = sum(r["passed"]       for r in reports)
+    overall_pct  = round(total_passed / total_checks * 100, 1) if total_checks else 100.0
+
+    lines.append("─" * _W)
+    lines.append(
+        f"  Checks: {total_checks}   "
+        f"Passed: {total_passed} ({overall_pct:.1f}%)   "
+        f"Warnings: {n_warnings}   "
+        f"Critical: {n_critical}"
+    )
+    lines.append("")
+    if n_critical:
+        lines.append("  ✗ PIPELINE HALTED — resolve critical failures above and re-run")
+    else:
+        lines.append("  ✓ Pipeline may proceed")
+    lines.append("─" * _W)
+
+    return "\n".join(lines)

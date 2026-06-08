@@ -1,3 +1,21 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths  = ["tests/unit", "tests/integration"]
+
+[tool.coverage.run]
+source   = ["corporate_pipeline", "api"]
+omit     = ["tests/*", "**/__pycache__/*", "**/conftest.py"]
+branch   = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision    = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "coverage_html"

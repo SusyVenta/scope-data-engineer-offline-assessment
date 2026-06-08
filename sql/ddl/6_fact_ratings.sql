@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS fact_ratings (
     rating_id                        SERIAL        PRIMARY KEY,
     upload_id                        INT           NOT NULL REFERENCES upload_log(upload_id),
     company_id                       INT           NOT NULL REFERENCES dim_company(company_id),
-    sector_id                        INT           REFERENCES dim_sector(sector_id),
 
     -- Composite ratings (company-specific, derived from sub-scores)
     business_risk_profile            TEXT,
@@ -38,3 +37,15 @@ CREATE TABLE IF NOT EXISTS fact_ratings (
 
     UNIQUE (upload_id, company_id)
 );
+
+-- Per-company rating history queries (/companies/{name}/history, /snapshots?company_id=...).
+CREATE INDEX IF NOT EXISTS idx_fact_ratings_company_loaded
+    ON fact_ratings (company_id, loaded_at_utc DESC);
+
+-- BRIN index for date-range scans on the append-only load timestamp.
+-- BRIN is orders-of-magnitude cheaper than B-tree on large sequential tables
+-- and provides the same range-pruning benefit as declarative partitioning for
+-- queries filtered by load date. Apply PARTITION BY RANGE (loaded_at_utc) with
+-- annual sub-tables once row counts exceed ~50M.
+CREATE INDEX IF NOT EXISTS idx_fact_ratings_loaded_brin
+    ON fact_ratings USING BRIN (loaded_at_utc);

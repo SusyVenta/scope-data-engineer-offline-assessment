@@ -210,3 +210,9 @@ Make sure all tests run successfully.
 ```
 
 At this point I have revised the data model manually because it degenerated in an over complicated model.
+
+https://github.com/SusyVenta/scope-data-engineer-offline-assessment/commit/72ff6222bcbf877e1125cd03cad7f7894a6ab852
+
+```
+I have manually reviewed the data model. what you see now in ddl is what i want to keep. please review it and tell me if you see any issues with it. if not, update the code accordingly and the tests. make sure tests run successfully. don't care about the API for now, let's focus on the data model
+```

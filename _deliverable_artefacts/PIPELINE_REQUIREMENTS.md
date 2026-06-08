@@ -1,5 +1,7 @@
 # Senior Data Engineer Assignment — Corporate Credit Rating Data Pipeline
 
+[Source](https://github.com/SCOPE-QAM/data_engineer_task)
+
 ## Overview
 
 Build a production-ready data pipeline that extracts corporate metadata from the MASTER sheet of Excel files, models it in a dimensional warehouse with temporal tracking, and exposes it through a RESTful API. The entire solution must be containerized using Docker Compose.

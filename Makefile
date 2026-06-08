@@ -1,4 +1,4 @@
-.PHONY: up down test test-unit test-integration
+.PHONY: up down test test-unit test-integration coverage
 
 # Development: tear down, rebuild, start fresh, and wait until all services are healthy.
 up:
@@ -20,3 +20,13 @@ test-unit:
 # Run integration tests only. Starts all required services automatically.
 test-integration:
 	docker compose --profile integration-test run --rm integration-tests
+
+# Run unit tests with coverage. Prints term-missing report and writes HTML to coverage_html/.
+coverage:
+	docker compose --profile test run --rm tests \
+		python -m pytest tests/unit \
+			--cov=corporate_pipeline \
+			--cov=api \
+			--cov-report=term-missing \
+			--cov-report=html:coverage_html \
+			-q

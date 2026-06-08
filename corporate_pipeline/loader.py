@@ -11,13 +11,12 @@ Incremental logic:
   4. For each staged file: check upload_log for its data_hash.
      If already present → skip with WARNING (same content already loaded).
      Otherwise:
-       a. upsert dim_sector
-       b. insert upload_log
-       c. SCD2 upsert dim_company (includes segmentation criteria comparison)
-       d. upsert dim_industry_risk entries and insert company_industry_risk bridge
-       e. upsert dim_rating_methodology entries and insert company_methodology bridge
-       f. insert fact_ratings
-       g. insert fact_scope_credit (one row per metric × year)
+       a. insert upload_log
+       b. SCD2 upsert dim_company (sector_name is inlined text, no lookup table)
+       c. insert dim_company_industry_risk bridge rows
+       d. insert dim_company_rating_methodology bridge rows
+       e. insert fact_ratings
+       f. insert fact_scope_credit_hist (one row per metric × year)
   5. On completion, update pipeline_run_state with final status and counts.
 
 All DB operations for one record are wrapped in a single transaction;
@@ -146,52 +145,8 @@ def hash_already_loaded(conn: Any, data_hash: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Dimension upserts
+# Upload log
 # ---------------------------------------------------------------------------
-
-def _upsert_sector(conn: Any, sector_name: str) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO dim_sector (sector_name)
-            VALUES (%s)
-            ON CONFLICT (sector_name) DO UPDATE SET sector_name = EXCLUDED.sector_name
-            RETURNING sector_id
-            """,
-            (sector_name,),
-        )
-        return cur.fetchone()[0]
-
-
-def _upsert_industry_risk(conn: Any, risk_name: str) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO dim_industry_risk (industry_risk_name)
-            VALUES (%s)
-            ON CONFLICT (industry_risk_name)
-                DO UPDATE SET industry_risk_name = EXCLUDED.industry_risk_name
-            RETURNING industry_risk_id
-            """,
-            (risk_name,),
-        )
-        return cur.fetchone()[0]
-
-
-def _upsert_methodology(conn: Any, methodology_name: str) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO dim_rating_methodology (methodology_name)
-            VALUES (%s)
-            ON CONFLICT (methodology_name)
-                DO UPDATE SET methodology_name = EXCLUDED.methodology_name
-            RETURNING methodology_id
-            """,
-            (methodology_name,),
-        )
-        return cur.fetchone()[0]
-
 
 def _insert_upload_log(
     conn: Any,
@@ -217,18 +172,21 @@ def _insert_upload_log(
         return cur.fetchone()[0]
 
 
+# ---------------------------------------------------------------------------
+# SCD2 company dimension
+# ---------------------------------------------------------------------------
+
 def _scd2_upsert_company(
     conn: Any,
     record: RatingRecord,
-    sector_id: int | None,
     upload_id: int,
     now: datetime,
 ) -> int:
     """Insert a new dim_company row or return the existing company_id unchanged.
 
-    A new version is created when any of the following change: sector,
-    country, reporting currency, accounting principles, business year-end
-    month, industry risk segmentation criteria, industry risk weights,
+    A new version is created when any of the following change: sector_name,
+    country, reporting_currency, accounting_principles, business_year_end_month,
+    industry_risk_segmentation_criteria, industry risk assignments/weights,
     or applied methodologies.
 
     Returns the (new or existing) company_id.
@@ -239,7 +197,7 @@ def _scd2_upsert_company(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT company_id, sector_id, country, reporting_currency,
+            SELECT company_id, sector_name, country, reporting_currency,
                    accounting_principles, business_year_end_month,
                    industry_risk_segmentation_criteria
             FROM dim_company
@@ -259,7 +217,7 @@ def _scd2_upsert_company(
             ex_methodologies = _fetch_existing_methodologies(cur, existing_id)
 
             changed = (
-                ex_sector       != sector_id
+                ex_sector       != record.sector
                 or ex_country   != record.country
                 or ex_currency  != record.currency
                 or ex_accounting != record.accounting_principles
@@ -284,7 +242,7 @@ def _scd2_upsert_company(
         cur.execute(
             """
             INSERT INTO dim_company
-                (entity_name, sector_id, country, reporting_currency,
+                (entity_name, sector_name, country, reporting_currency,
                  accounting_principles, business_year_end_month,
                  industry_risk_segmentation_criteria,
                  valid_from, is_current, source_upload_id)
@@ -293,7 +251,7 @@ def _scd2_upsert_company(
             """,
             (
                 record.rated_entity,
-                sector_id,
+                record.sector,
                 record.country,
                 record.currency,
                 record.accounting_principles,
@@ -307,13 +265,12 @@ def _scd2_upsert_company(
 
 
 def _sorted_risks(record: RatingRecord) -> list[tuple[str, float]]:
-    risks = [
-        (record.industry_risk_1, record.industry_weight_1),
-        (record.industry_risk_2, record.industry_weight_2),
-    ]
     return sorted(
         (name, round(float(w or 0.0), 4))
-        for name, w in risks
+        for name, w in [
+            (record.industry_risk_1, record.industry_weight_1),
+            (record.industry_risk_2, record.industry_weight_2),
+        ]
         if name
     )
 
@@ -321,10 +278,9 @@ def _sorted_risks(record: RatingRecord) -> list[tuple[str, float]]:
 def _fetch_existing_risks(cur: Any, company_id: int) -> list[tuple[str, float]]:
     cur.execute(
         """
-        SELECT dir.industry_risk_name, cir.weight
-        FROM company_industry_risk cir
-        JOIN dim_industry_risk dir ON dir.industry_risk_id = cir.industry_risk_id
-        WHERE cir.company_id = %s
+        SELECT industry_risk_name, weight
+        FROM dim_company_industry_risk
+        WHERE company_id = %s
         """,
         (company_id,),
     )
@@ -334,35 +290,37 @@ def _fetch_existing_risks(cur: Any, company_id: int) -> list[tuple[str, float]]:
 def _fetch_existing_methodologies(cur: Any, company_id: int) -> list[str]:
     cur.execute(
         """
-        SELECT drm.methodology_name
-        FROM company_methodology cm
-        JOIN dim_rating_methodology drm ON drm.methodology_id = cm.methodology_id
-        WHERE cm.company_id = %s
+        SELECT rating_methodology_name
+        FROM dim_company_rating_methodology
+        WHERE company_id = %s
         """,
         (company_id,),
     )
     return sorted(r[0] for r in cur.fetchall())
 
 
+# ---------------------------------------------------------------------------
+# Bridge table inserts
+# ---------------------------------------------------------------------------
+
 def _insert_company_industry_risks(
     conn: Any, company_id: int, record: RatingRecord
 ) -> None:
-    pairs = [
+    for risk_name, weight in [
         (record.industry_risk_1, record.industry_weight_1),
         (record.industry_risk_2, record.industry_weight_2),
-    ]
-    for risk_name, weight in pairs:
+    ]:
         if not risk_name:
             continue
-        risk_id = _upsert_industry_risk(conn, risk_name)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO company_industry_risk (company_id, industry_risk_id, weight)
+                INSERT INTO dim_company_industry_risk
+                    (company_id, industry_risk_name, weight)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (company_id, industry_risk_id) DO NOTHING
+                ON CONFLICT (company_id, industry_risk_name) DO NOTHING
                 """,
-                (company_id, risk_id, round(float(weight or 0.0), 4)),
+                (company_id, risk_name, round(float(weight or 0.0), 4)),
             )
 
 
@@ -372,31 +330,34 @@ def _insert_company_methodologies(
     for methodology_name in [record.methodology_1, record.methodology_2]:
         if not methodology_name:
             continue
-        m_id = _upsert_methodology(conn, methodology_name)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO company_methodology (company_id, methodology_id)
+                INSERT INTO dim_company_rating_methodology
+                    (company_id, rating_methodology_name)
                 VALUES (%s, %s)
-                ON CONFLICT (company_id, methodology_id) DO NOTHING
+                ON CONFLICT (company_id, rating_methodology_name) DO NOTHING
                 """,
-                (company_id, m_id),
+                (company_id, methodology_name),
             )
 
+
+# ---------------------------------------------------------------------------
+# Fact table inserts
+# ---------------------------------------------------------------------------
 
 def _insert_fact_ratings(
     conn: Any,
     record: RatingRecord,
     upload_id: int,
     company_id: int,
-    sector_id: int | None,
     now: datetime,
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO fact_ratings (
-                upload_id, company_id, sector_id,
+                upload_id, company_id,
                 business_risk_profile, financial_risk_profile,
                 blended_industry_risk_profile, competitive_positioning,
                 market_share, diversification, operating_profitability,
@@ -404,7 +365,7 @@ def _insert_fact_ratings(
                 leverage, interest_cover, cash_flow_cover, liquidity,
                 data_hash, loaded_at_utc
             ) VALUES (
-                %s, %s, %s,
+                %s, %s,
                 %s, %s,
                 %s, %s,
                 %s, %s, %s,
@@ -414,7 +375,7 @@ def _insert_fact_ratings(
             )
             """,
             (
-                upload_id, company_id, sector_id,
+                upload_id, company_id,
                 record.business_risk_profile, record.financial_risk_profile,
                 record.blended_industry_risk_profile, record.competitive_positioning,
                 record.market_share, record.diversification, record.operating_profitability,
@@ -439,7 +400,7 @@ def _insert_fact_scope_credit(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO fact_scope_credit
+                    INSERT INTO fact_scope_credit_hist
                         (company_id, upload_id, metric_name, year, metric_value, loaded_at_utc)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (upload_id, metric_name, year) DO NOTHING
@@ -473,13 +434,12 @@ def load_record(
 
     now = datetime.now(timezone.utc)
 
-    sector_id = _upsert_sector(conn, record.sector) if record.sector else None
-    upload_id = _insert_upload_log(conn, record, dag_run_id)
-    company_id = _scd2_upsert_company(conn, record, sector_id, upload_id, now)
+    upload_id  = _insert_upload_log(conn, record, dag_run_id)
+    company_id = _scd2_upsert_company(conn, record, upload_id, now)
 
     _insert_company_industry_risks(conn, company_id, record)
     _insert_company_methodologies(conn, company_id, record)
-    _insert_fact_ratings(conn, record, upload_id, company_id, sector_id, now)
+    _insert_fact_ratings(conn, record, upload_id, company_id, now)
     _insert_fact_scope_credit(conn, record, upload_id, company_id, now)
 
     _LOG.info(

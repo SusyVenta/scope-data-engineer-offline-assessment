@@ -22,7 +22,6 @@ Connections expected in Airflow (set via env vars in docker-compose):
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import pickle
@@ -48,7 +47,9 @@ DEFAULT_ARGS = {
     "email_on_retry": False,
     "email": [_ALERT_EMAIL] if _ALERT_EMAIL else [],
     "retries": 2,
-    "retry_delay": timedelta(minutes=5),
+    "retry_delay": timedelta(minutes=1),
+    "retry_exponential_backoff": True,
+    "max_retry_delay": timedelta(minutes=10),
 }
 
 
@@ -64,11 +65,11 @@ def _create_output_tables(**context) -> None:
     try:
         for ddl_file in sorted(ddl_dir.glob("*.sql")):
             sql = ddl_file.read_text()
-            _LOG.info("Applying DDL: %s", ddl_file.name)
+            _LOG.info(f"Creating table: {ddl_file.name}")
             with conn.cursor() as cur:
                 cur.execute(sql)
         conn.commit()
-        _LOG.info("All DDL files applied.")
+        _LOG.info("All tables created from DDL files' SQL")
     finally:
         conn.close()
 
@@ -136,9 +137,15 @@ def _validate_data(**context) -> None:
     import sys, pickle
     sys.path.insert(0, "/opt/airflow")
 
-    from corporate_pipeline.validator import generate_quality_report, is_valid, validate_record
+    from corporate_pipeline.validator import (
+        format_quality_report,
+        generate_quality_report,
+        is_valid,
+        validate_record,
+    )
 
     ti = context["ti"]
+    dag_run_id = context["dag_run"].run_id
     records_hex = ti.xcom_pull(task_ids="extract_sheets", key="records_pickle")
     records = pickle.loads(bytes.fromhex(records_hex))
 
@@ -147,32 +154,12 @@ def _validate_data(**context) -> None:
 
     for record in records:
         results = validate_record(record)
-        report = generate_quality_report(results, record.source_filename)
+        report  = generate_quality_report(results, record.source_filename, record.rated_entity or "")
         quality_reports.append(report)
-
         if not is_valid(results):
             has_critical_failure = True
-            _LOG.error(
-                "[validate] CRITICAL failures in %s:\n%s",
-                record.source_filename,
-                json.dumps(report["failures"], indent=2),
-            )
-        else:
-            _LOG.info(
-                "[validate] %s passed validation (completeness=%.1f%%, validity=%.1f%%)",
-                record.source_filename,
-                report["completeness_pct"],
-                report["validity_pct"],
-            )
-            if report["failures"]:
-                _LOG.warning(
-                    "[validate] %s warnings in %s:\n%s",
-                    len(report["failures"]),
-                    record.source_filename,
-                    json.dumps(report["failures"], indent=2),
-                )
 
-    _LOG.info("[validate] Quality report summary:\n%s", json.dumps(quality_reports, indent=2))
+    _LOG.info("[validate]\n%s", format_quality_report(quality_reports, dag_run_id))
 
     if has_critical_failure:
         raise ValueError(

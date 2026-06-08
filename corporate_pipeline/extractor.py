@@ -20,14 +20,42 @@ Public API:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Retry decorator
+# ---------------------------------------------------------------------------
+
+def _with_retries(max_attempts: int = 3, base_delay: float = 1.0, backoff: float = 2.0):
+    """Retry a function on transient I/O errors with exponential backoff.
+
+    Retries on OSError / IOError (covers NFS latency, file locking) and
+    openpyxl-level exceptions.  Raises immediately on any other exception.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            delay = base_delay
+            for attempt in range(max_attempts):
+                try:
+                    return fn(*args, **kwargs)
+                except (OSError, IOError) as exc:
+                    if attempt == max_attempts - 1:
+                        raise
+                    time.sleep(delay)
+                    delay *= backoff
+        return wrapper
+    return decorator
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +142,7 @@ class RawMasterRecord:
 # Sheet extraction
 # ---------------------------------------------------------------------------
 
+@_with_retries()
 def extract_master_sheet(filepath: str | Path) -> pd.DataFrame:
     """Load the MASTER sheet from an .xlsm file into a raw DataFrame.
 
@@ -141,6 +170,8 @@ def extract_master_sheet(filepath: str | Path) -> pd.DataFrame:
 
     # Drop rows that are entirely empty (all cells None/NaN)
     df = df.dropna(how="all")
+
+    print("Extracted MASTER sheet df and removed spaces / empty rows")
 
     return df
 
@@ -323,6 +354,7 @@ def save_extracted_sheet(df: pd.DataFrame, output_dir: str | Path, stem: str) ->
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{stem}_master.csv"
     df.to_csv(out_path, index=True, header=False)
+    print(f"Saved extracted MASTER sheet records to {out_path}")
     return out_path
 
 

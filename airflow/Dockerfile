@@ -16,4 +16,6 @@ RUN pip install --no-cache-dir \
     "requests==2.32.3" \
     "httpx==0.27.2" \
     "pytest==8.3.4" \
-    "pytest-cov==6.0.0"
+    "pytest-cov==6.0.0" \
+    "fastapi==0.111.1" \
+    "pydantic==2.7.4"

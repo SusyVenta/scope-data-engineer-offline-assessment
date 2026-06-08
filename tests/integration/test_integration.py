@@ -174,16 +174,13 @@ def _trigger_dag_and_wait() -> str:
 def clean_test_schema():
     """Truncate all tables in the corporate_test schema and delete prior DAG runs.
 
-    Ensures each integration test session starts from a known-empty state so
-    the first triggered run always loads all 4 files. The production public
-    schema is never touched.
+    Uses a dynamic PL/pgSQL loop so the fixture works regardless of which DDL
+    version created the tables — no hardcoded table list needed.
+    The production public schema is never touched.
     """
     conn = _pg_conn()
     try:
         with conn.cursor() as cur:
-            # Truncate every table in the corporate_test schema with CASCADE.
-            # Using a PL/pgSQL loop means this works whether the tables were
-            # created by an old or new DDL version — no hardcoded table list.
             cur.execute(f"""
                 DO $$
                 DECLARE r record;
@@ -321,93 +318,96 @@ class TestUploadLog:
 
 
 # ---------------------------------------------------------------------------
-# Dimension tables
+# dim_company table
 # ---------------------------------------------------------------------------
 
-class TestDimensionTables:
-    def test_dim_sector_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM dim_sector")
-        assert count > 0
-
-    def test_dim_industry_risk_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM dim_industry_risk")
-        assert count > 0
-
-    def test_dim_rating_methodology_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM dim_rating_methodology")
-        assert count > 0
-
-    def test_dim_company_has_current_rows(self, dag_run_id):
+class TestDimCompany:
+    def test_has_current_rows(self, dag_run_id):
         count = _pg_scalar("SELECT COUNT(*) FROM dim_company WHERE is_current = TRUE")
         assert count > 0
 
-    def test_dim_company_entity_name_not_null(self, dag_run_id):
+    def test_entity_name_not_null(self, dag_run_id):
         bad = _pg_scalar(
             "SELECT COUNT(*) FROM dim_company WHERE entity_name IS NULL OR entity_name = ''"
         )
         assert bad == 0
 
-    def test_dim_company_loaded_at_utc_populated(self, dag_run_id):
+    def test_sector_name_not_null(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM dim_company WHERE sector_name IS NULL OR sector_name = ''"
+        )
+        assert bad == 0
+
+    def test_loaded_at_utc_populated(self, dag_run_id):
         bad = _pg_scalar("SELECT COUNT(*) FROM dim_company WHERE loaded_at_utc IS NULL")
         assert bad == 0
 
-    def test_dim_company_valid_from_not_null(self, dag_run_id):
+    def test_valid_from_not_null(self, dag_run_id):
         bad = _pg_scalar("SELECT COUNT(*) FROM dim_company WHERE valid_from IS NULL")
         assert bad == 0
 
-    def test_dim_company_current_rows_have_null_valid_to(self, dag_run_id):
+    def test_current_rows_have_null_valid_to(self, dag_run_id):
         bad = _pg_scalar(
             "SELECT COUNT(*) FROM dim_company WHERE is_current = TRUE AND valid_to IS NOT NULL"
         )
         assert bad == 0
 
-    def test_dim_company_fk_to_sector(self, dag_run_id):
-        orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM dim_company dc "
-            "LEFT JOIN dim_sector ds ON ds.sector_id = dc.sector_id "
-            "WHERE dc.sector_id IS NOT NULL AND ds.sector_id IS NULL"
-        )
-        assert orphan == 0
 
-    def test_company_industry_risk_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM company_industry_risk")
+# ---------------------------------------------------------------------------
+# dim_company_industry_risk bridge table
+# ---------------------------------------------------------------------------
+
+class TestDimCompanyIndustryRisk:
+    def test_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM dim_company_industry_risk")
         assert count > 0
 
-    def test_company_industry_risk_fk_to_company(self, dag_run_id):
+    def test_fk_to_dim_company(self, dag_run_id):
         orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM company_industry_risk cir "
+            "SELECT COUNT(*) FROM dim_company_industry_risk cir "
             "LEFT JOIN dim_company dc ON dc.company_id = cir.company_id "
             "WHERE dc.company_id IS NULL"
         )
         assert orphan == 0
 
-    def test_company_industry_risk_fk_to_dim_industry_risk(self, dag_run_id):
-        orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM company_industry_risk cir "
-            "LEFT JOIN dim_industry_risk dir ON dir.industry_risk_id = cir.industry_risk_id "
-            "WHERE dir.industry_risk_id IS NULL"
+    def test_weight_between_0_and_1(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM dim_company_industry_risk "
+            "WHERE weight < 0 OR weight > 1"
         )
-        assert orphan == 0
+        assert bad == 0
 
-    def test_company_methodology_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM company_methodology")
+    def test_no_null_industry_risk_name(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM dim_company_industry_risk "
+            "WHERE industry_risk_name IS NULL OR industry_risk_name = ''"
+        )
+        assert bad == 0
+
+
+# ---------------------------------------------------------------------------
+# dim_company_rating_methodology bridge table
+# ---------------------------------------------------------------------------
+
+class TestDimCompanyRatingMethodology:
+    def test_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM dim_company_rating_methodology")
         assert count > 0
 
-    def test_company_methodology_fk_to_company(self, dag_run_id):
+    def test_fk_to_dim_company(self, dag_run_id):
         orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM company_methodology cm "
+            "SELECT COUNT(*) FROM dim_company_rating_methodology cm "
             "LEFT JOIN dim_company dc ON dc.company_id = cm.company_id "
             "WHERE dc.company_id IS NULL"
         )
         assert orphan == 0
 
-    def test_company_methodology_fk_to_dim_rating_methodology(self, dag_run_id):
-        orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM company_methodology cm "
-            "LEFT JOIN dim_rating_methodology drm ON drm.methodology_id = cm.methodology_id "
-            "WHERE drm.methodology_id IS NULL"
+    def test_no_null_methodology_name(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM dim_company_rating_methodology "
+            "WHERE rating_methodology_name IS NULL OR rating_methodology_name = ''"
         )
-        assert orphan == 0
+        assert bad == 0
 
 
 # ---------------------------------------------------------------------------
@@ -423,10 +423,16 @@ class TestFactRatings:
         bad = _pg_scalar("SELECT COUNT(*) FROM fact_ratings WHERE data_hash IS NULL")
         assert bad == 0
 
-    def test_data_hash_unique_in_fact(self, dag_run_id):
-        total = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
-        distinct = _pg_scalar("SELECT COUNT(DISTINCT data_hash) FROM fact_ratings")
-        assert total == distinct, "Duplicate data_hash values found in fact_ratings"
+    def test_no_duplicate_upload_company(self, dag_run_id):
+        dups = _pg_scalar(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT upload_id, company_id, COUNT(*) "
+            "  FROM fact_ratings "
+            "  GROUP BY upload_id, company_id "
+            "  HAVING COUNT(*) > 1"
+            ") t"
+        )
+        assert dups == 0, "Duplicate (upload_id, company_id) pairs found in fact_ratings"
 
     def test_loaded_at_utc_populated(self, dag_run_id):
         bad = _pg_scalar("SELECT COUNT(*) FROM fact_ratings WHERE loaded_at_utc IS NULL")
@@ -449,7 +455,6 @@ class TestFactRatings:
         assert orphan == 0
 
     def test_rating_count_matches_upload_rows_extracted(self, dag_run_id):
-        """rows_extracted in upload_log should equal fact_ratings inserted for that upload."""
         mismatched = _pg_scalar(
             "SELECT COUNT(*) FROM ("
             "  SELECT u.upload_id, u.rows_extracted, COUNT(fr.rating_id) AS actual "
@@ -463,23 +468,24 @@ class TestFactRatings:
 
 
 # ---------------------------------------------------------------------------
-# fact_scope_credit table
+# fact_scope_credit_hist table
 # ---------------------------------------------------------------------------
 
-class TestFactScopeCredit:
+class TestFactScopeCreditHist:
     def test_table_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM fact_scope_credit")
+        count = _pg_scalar("SELECT COUNT(*) FROM fact_scope_credit_hist")
         assert count > 0
 
     def test_no_null_metric_name(self, dag_run_id):
         bad = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_scope_credit WHERE metric_name IS NULL OR metric_name = ''"
+            "SELECT COUNT(*) FROM fact_scope_credit_hist "
+            "WHERE metric_name IS NULL OR metric_name = ''"
         )
         assert bad == 0
 
     def test_no_null_year(self, dag_run_id):
         bad = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_scope_credit WHERE year IS NULL OR year = ''"
+            "SELECT COUNT(*) FROM fact_scope_credit_hist WHERE year IS NULL OR year = ''"
         )
         assert bad == 0
 
@@ -487,7 +493,7 @@ class TestFactScopeCredit:
         dups = _pg_scalar(
             "SELECT COUNT(*) FROM ("
             "  SELECT upload_id, metric_name, year, COUNT(*) "
-            "  FROM fact_scope_credit "
+            "  FROM fact_scope_credit_hist "
             "  GROUP BY upload_id, metric_name, year "
             "  HAVING COUNT(*) > 1"
             ") t"
@@ -496,7 +502,7 @@ class TestFactScopeCredit:
 
     def test_fk_to_upload_log(self, dag_run_id):
         orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_scope_credit fsc "
+            "SELECT COUNT(*) FROM fact_scope_credit_hist fsc "
             "LEFT JOIN upload_log u ON u.upload_id = fsc.upload_id "
             "WHERE u.upload_id IS NULL"
         )
@@ -504,7 +510,7 @@ class TestFactScopeCredit:
 
     def test_fk_to_dim_company(self, dag_run_id):
         orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_scope_credit fsc "
+            "SELECT COUNT(*) FROM fact_scope_credit_hist fsc "
             "LEFT JOIN dim_company dc ON dc.company_id = fsc.company_id "
             "WHERE dc.company_id IS NULL"
         )
@@ -517,7 +523,6 @@ class TestFactScopeCredit:
 
 class TestIdempotency:
     def test_second_run_loads_nothing(self, second_dag_run_id):
-        """Re-triggering with unchanged files: nothing new staged or loaded."""
         row = _pg_rows(
             "SELECT status, files_staged, files_loaded, files_skipped "
             "FROM pipeline_run_state WHERE dag_run_id = %s",
@@ -532,7 +537,6 @@ class TestIdempotency:
         )
 
     def test_fact_ratings_count_unchanged_after_second_run(self, second_dag_run_id, dag_run_id):
-        """The total rating count must be the same after the idempotent second run."""
         count_first_run = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
         assert count_first_run > 0, "No ratings after first run"
         count_after_second = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
@@ -569,19 +573,19 @@ class TestAPICompanies:
 
     def test_get_single_company(self, dag_run_id):
         companies = _api_get("/companies")
-        first_id = companies[0]["company_id"]
-        company = _api_get(f"/companies/{first_id}")
-        assert company["company_id"] == first_id
+        first_name = companies[0]["entity_name"]
+        company = _api_get(f"/companies/{first_name}")
+        assert company["entity_name"] == first_name
         assert company["is_current"] is True
 
     def test_company_not_found_returns_404(self, dag_run_id):
-        resp = requests.get(f"{API_BASE_URL}/companies/999999", timeout=15)
+        resp = requests.get(f"{API_BASE_URL}/companies/nonexistent-entity-xyz", timeout=15)
         assert resp.status_code == 404
 
     def test_company_versions(self, dag_run_id):
         companies = _api_get("/companies")
-        first_id = companies[0]["company_id"]
-        versions = _api_get(f"/companies/{first_id}/versions")
+        first_name = companies[0]["entity_name"]
+        versions = _api_get(f"/companies/{first_name}/versions")
         assert isinstance(versions, list)
         assert len(versions) >= 1
         for v in versions:
@@ -590,26 +594,26 @@ class TestAPICompanies:
 
     def test_company_history(self, dag_run_id):
         companies = _api_get("/companies")
-        first_id = companies[0]["company_id"]
-        history = _api_get(f"/companies/{first_id}/history")
+        first_name = companies[0]["entity_name"]
+        history = _api_get(f"/companies/{first_name}/history")
         assert isinstance(history, list)
         assert len(history) >= 1
-        for snap in history:
-            assert "snapshot_id" in snap
-            assert "data_hash" in snap
+        for row in history:
+            assert "metric_name" in row
+            assert "year" in row
+            assert "metric_value" in row
 
     def test_compare_companies(self, dag_run_id):
         companies = _api_get("/companies")
-        ids = ",".join(str(c["company_id"]) for c in companies[:2])
-        result = _api_get("/companies/compare", params={"company_ids": ids})
+        names = ",".join(c["entity_name"] for c in companies[:2])
+        result = _api_get("/companies/compare", params={"entity_names": names})
         assert "companies" in result
         assert isinstance(result["companies"], list)
         assert len(result["companies"]) <= 2
 
-    def test_compare_invalid_ids_returns_422(self, dag_run_id):
+    def test_compare_missing_entity_names_returns_422(self, dag_run_id):
         resp = requests.get(
             f"{API_BASE_URL}/companies/compare",
-            params={"company_ids": "abc,def"},
             timeout=15,
         )
         assert resp.status_code == 422
