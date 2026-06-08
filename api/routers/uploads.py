@@ -99,7 +99,7 @@ def get_upload_details(
     upload_id: int = FPath(
         ...,
         description="Upload log ID. Sample values: 1, 2, 3, 4.",
-        example=1,
+        examples=[1],
     ),
 ):
     upload_sql = "SELECT * FROM upload_log WHERE upload_id = %s"
@@ -138,7 +138,7 @@ def download_upload_file(
     upload_id: int = FPath(
         ...,
         description="Upload log ID. Sample values: 1, 2, 3, 4.",
-        example=1,
+        examples=[1],
     ),
 ):
     with get_db() as conn:

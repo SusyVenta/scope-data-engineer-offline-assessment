@@ -79,32 +79,32 @@ def list_snapshots(
     company_id: Optional[int] = Query(
         None,
         description="Filter by internal company_id (surrogate key from dim_company).",
-        example=1,
+        examples=[1],
     ),
     from_date: Optional[datetime] = Query(
         None,
         description="Include only snapshots loaded on or after this date (ISO 8601). Example: `2026-06-08T18:00:00Z`",
-        example="2026-06-08T18:00:00Z",
+        examples=["2026-06-08T18:00:00Z"],
     ),
     to_date: Optional[datetime] = Query(
         None,
         description="Include only snapshots loaded on or before this date (ISO 8601). Example: `2026-06-08T20:00:00Z`",
-        example="2026-06-08T20:00:00Z",
+        examples=["2026-06-08T20:00:00Z"],
     ),
     sector: Optional[str] = Query(
         None,
         description="Case-insensitive partial match on sector name. Example: `Automobiles`",
-        example="Automobiles",
+        examples=["Automobiles"],
     ),
     country: Optional[str] = Query(
         None,
         description="Case-insensitive partial match on country name. Example: `Germany`",
-        example="Germany",
+        examples=["Germany"],
     ),
     currency: Optional[str] = Query(
         None,
         description="Exact match on reporting currency (case-insensitive). Example: `EUR` or `CHF`",
-        example="EUR",
+        examples=["EUR"],
     ),
 ):
     conditions = []
@@ -153,7 +153,7 @@ def get_snapshot(
     snapshot_id: int = Path(
         ...,
         description="Rating snapshot ID (fact_ratings.rating_id). Sample values: 1, 2, 3, 4.",
-        example=1,
+        examples=[1],
     ),
 ):
     sql = f"""

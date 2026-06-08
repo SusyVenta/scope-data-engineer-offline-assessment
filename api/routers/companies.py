@@ -96,7 +96,7 @@ def compare_companies(
     entity_names: str = Query(
         ...,
         description="Comma-separated entity names to compare.",
-        example="Company A,Company B",
+        examples=["Company A,Company B"],
     ),
     as_of_date: Optional[datetime] = Query(
         None,
@@ -105,7 +105,7 @@ def compare_companies(
             "Only snapshots loaded on or before this date are returned. "
             "Example: `2026-06-08T20:00:00Z`"
         ),
-        example="2026-06-08T20:00:00Z",
+        examples=["2026-06-08T20:00:00Z"],
     ),
 ):
     names = [n.strip() for n in entity_names.split(",") if n.strip()]
@@ -154,7 +154,7 @@ def get_company(
     entity_name: str = Path(
         ...,
         description="Exact entity name (e.g. 'Company A'). Retrieve valid names from GET /companies.",
-        example="Company A",
+        examples=["Company A"],
     ),
 ):
     sql = f"""
@@ -188,7 +188,7 @@ def get_company_versions(
     entity_name: str = Path(
         ...,
         description="Exact entity name (e.g. 'Company A'). Retrieve valid names from GET /companies.",
-        example="Company A",
+        examples=["Company A"],
     ),
 ):
     sql = f"""
@@ -227,7 +227,7 @@ def get_company_history(
     entity_name: str = Path(
         ...,
         description="Exact entity name (e.g. 'Company A'). Retrieve valid names from GET /companies.",
-        example="Company A",
+        examples=["Company A"],
     ),
 ):
     sql = """

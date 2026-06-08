@@ -206,7 +206,7 @@ curl "http://localhost:8000/snapshots?currency=EUR"
 
 # Compare two companies (optionally at a point in time)
 curl "http://localhost:8000/companies/compare?entity_names=Company%20A,Company%20B"
-curl "http://localhost:8000/companies/compare?entity_names=Company%20A,Company%20B&as_of_date=2026-06-08T20:00:00Z"
+curl "http://localhost:8000/companies/compare?entity_names=Company%20A,Company%20B&as_of_date=2099-01-01T00:00:00Z"
 
 # Upload stats
 curl http://localhost:8000/uploads/stats
@@ -463,13 +463,13 @@ erDiagram
 
     dim_company_industry_risk {
         int     company_id         FK
-        text    industry_risk_name
+        text    industry_risk_name PK
         numeric weight
     }
 
     dim_company_rating_methodology {
         int  company_id              FK
-        text rating_methodology_name
+        text rating_methodology_name PK
     }
 
     fact_ratings {
@@ -503,6 +503,7 @@ erDiagram
         timestamptz loaded_at_utc
     }
 
+    pipeline_run_state ||--o{ upload_log : "dag_run_id"
     upload_log ||--o{ dim_company : "source_upload_id"
     upload_log ||--o{ fact_ratings : "upload_id"
     upload_log ||--o{ fact_scope_credit_hist : "upload_id"
