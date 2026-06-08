@@ -618,9 +618,12 @@ make down
 
 | Artefact | Location |
 |---|---|
+| Source code | This repository |
+| Docker Compose setup | [`docker-compose.yml`](docker-compose.yml) — one-command startup: `docker compose up -d` |
 | 13 API call examples with real responses | [`_deliverable_artefacts/API_CALLS_EXAMPLES.md`](_deliverable_artefacts/API_CALLS_EXAMPLES.md) |
 | Data quality report example | [`_deliverable_artefacts/data_quality_report_example.png`](_deliverable_artefacts/data_quality_report_example.png) |
 | Pipeline execution logs | [`_deliverable_artefacts/airflow_logs/`](_deliverable_artefacts/airflow_logs/) |
+| Tests + coverage (288 tests, 92.4% branch coverage) | [`tests/`](tests/) — see [Running tests](#running-tests) |
 | AI tools disclosure | [`_deliverable_artefacts/ai_usage/AI_USAGE.md`](_deliverable_artefacts/ai_usage/AI_USAGE.md) |
 | Redacted AI chat transcript | [`_deliverable_artefacts/ai_usage/chat_transcript.md`](_deliverable_artefacts/ai_usage/chat_transcript.md) |
 
