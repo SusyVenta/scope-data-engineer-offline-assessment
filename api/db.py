@@ -40,10 +40,42 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
 
 @contextmanager
 def get_db() -> Generator[psycopg2.extensions.connection, None, None]:
-    """Yield a psycopg2 connection with RealDictCursor from the pool."""
+    """Yield a psycopg2 connection from the pool.
+
+    Before use, pings with SELECT 1 to detect stale connections (e.g. ones
+    left idle-in-transaction from a previous session, or killed by PostgreSQL
+    after a TRUNCATE lock wait).  A failed ping discards the whole pool so
+    the next _get_pool() call creates fresh connections.  After every request,
+    rollback() returns the connection to "idle" state so it doesn't hold locks
+    that would block DDL on subsequent test runs.
+    """
+    global _pool
     pool = _get_pool()
     conn = pool.getconn()
     try:
+        # Health-check: replace broken/stale connections before the caller hits them.
+        try:
+            conn.cursor().execute("SELECT 1")
+            conn.rollback()
+        except Exception:
+            _pool = None
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            pool = _get_pool()
+            conn = pool.getconn()
         yield conn
     finally:
-        pool.putconn(conn)
+        try:
+            conn.rollback()
+            pool.putconn(conn)
+        except Exception:
+            _pool = None
+            try:
+                conn.close()
+            except Exception:
+                pass

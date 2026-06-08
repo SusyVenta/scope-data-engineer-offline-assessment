@@ -6,7 +6,10 @@ FastAPI application entry point for the corporate ratings API.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+import os
+import traceback
+
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from api.routers import companies, snapshots, uploads
@@ -28,3 +31,15 @@ app.include_router(uploads.router)
 def health_check():
     """Liveness probe."""
     return JSONResponse({"status": "ok"})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    """Return the real exception detail in non-production environments."""
+    detail = f"{type(exc).__name__}: {exc}"
+    if os.getenv("POSTGRES_SCHEMA") != "public":
+        return JSONResponse(
+            status_code=500,
+            content={"detail": detail, "traceback": traceback.format_exc()},
+        )
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})

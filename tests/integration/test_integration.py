@@ -39,7 +39,7 @@ import requests
 
 AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
 AIRFLOW_AUTH = ("admin", "admin")
-DAG_ID = "corporate_ratings_pipeline"
+DAG_ID = "corporate_ratings_pipeline_integration"
 
 PG_HOST = os.getenv("POSTGRES_HOST", "postgres")
 PG_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -114,6 +114,8 @@ def _pg_rows(sql: str, params=None) -> list[dict]:
 
 def _api_get(path: str, params: dict | None = None) -> Any:
     resp = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=15)
+    if not resp.ok:
+        print(f"\n[API ERROR] {resp.status_code} GET {path}\n{resp.text[:2000]}")
     resp.raise_for_status()
     return resp.json()
 

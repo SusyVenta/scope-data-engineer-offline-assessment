@@ -270,48 +270,59 @@ def _load_to_warehouse(**context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DAG definition
+# DAG factory — reused by the integration-test DAG variant
 # ---------------------------------------------------------------------------
 
-with DAG(
-    dag_id="corporate_ratings_pipeline",
-    description="ETL pipeline: extract → validate → transform → load corporate rating Excel files",
-    default_args=DEFAULT_ARGS,
-    start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
-    catchup=False,
-    tags=["corporate", "etl", "ratings"],
-    max_active_runs=1,
-) as dag:
+def build_dag(dag_id: str, extra_tags: list[str] | None = None) -> DAG:
+    tags = ["corporate", "etl", "ratings"] + (extra_tags or [])
+    with DAG(
+        dag_id=dag_id,
+        description="ETL pipeline: extract → validate → transform → load corporate rating Excel files",
+        default_args=DEFAULT_ARGS,
+        start_date=datetime(2024, 1, 1),
+        schedule_interval=None,
+        catchup=False,
+        tags=tags,
+        max_active_runs=1,
+    ) as dag:
 
-    create_tables = PythonOperator(
-        task_id="create_tables",
-        python_callable=_create_output_tables,
-    )
+        create_tables = PythonOperator(
+            task_id="create_tables",
+            python_callable=_create_output_tables,
+        )
 
-    extract_sheets = PythonOperator(
-        task_id="extract_sheets",
-        python_callable=_extract_sheets,
-        op_kwargs={
-            "input_files_dir": INPUT_FILES_DIR,
-            "extracted_sheets_dir": EXTRACTED_SHEETS_DIR,
-            "dag_run_id": "{{ run_id }}",
-        },
-    )
+        extract_sheets = PythonOperator(
+            task_id="extract_sheets",
+            python_callable=_extract_sheets,
+            op_kwargs={
+                "input_files_dir": INPUT_FILES_DIR,
+                "extracted_sheets_dir": EXTRACTED_SHEETS_DIR,
+                "dag_run_id": "{{ run_id }}",
+            },
+        )
 
-    validate_data = PythonOperator(
-        task_id="validate_data",
-        python_callable=_validate_data,
-    )
+        validate_data = PythonOperator(
+            task_id="validate_data",
+            python_callable=_validate_data,
+        )
 
-    transform_data = PythonOperator(
-        task_id="transform_data",
-        python_callable=_transform_data,
-    )
+        transform_data = PythonOperator(
+            task_id="transform_data",
+            python_callable=_transform_data,
+        )
 
-    load_to_warehouse = PythonOperator(
-        task_id="load_to_warehouse",
-        python_callable=_load_to_warehouse,
-    )
+        load_to_warehouse = PythonOperator(
+            task_id="load_to_warehouse",
+            python_callable=_load_to_warehouse,
+        )
 
-    create_tables >> extract_sheets >> validate_data >> transform_data >> load_to_warehouse
+        create_tables >> extract_sheets >> validate_data >> transform_data >> load_to_warehouse
+
+    return dag
+
+
+# ---------------------------------------------------------------------------
+# Production DAG
+# ---------------------------------------------------------------------------
+
+dag = build_dag("corporate_ratings_pipeline")

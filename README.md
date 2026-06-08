@@ -71,23 +71,31 @@ docker compose version      # Docker Compose version v2.x.x
 
 ### 1 — Start everything
 
-One command builds images and starts all services in the correct dependency order:
+**First time / production** — starts all services in the background and returns immediately:
 
 ```bash
-docker compose up -d --build --remove-orphans
+docker compose up -d
 ```
 
-What happens automatically:
-1. **postgres** starts and passes its health check
-2. **airflow-init** runs once to create the Airflow metadata schema and `admin` user, then exits
-3. **airflow-webserver** and **airflow-scheduler** wait for init to complete, then start
-4. **api** starts once postgres is healthy
-
-Wait for all services to become healthy (≈ 60 s on first start):
+Check status manually once started (≈ 60 s on first start):
 
 ```bash
 docker compose ps   # all should show "healthy" or "exited (0)"
 ```
+
+**Development (clean restart)** — removes all containers, **wipes all database volumes**, rebuilds images, starts fresh, and **blocks until every service is healthy** before returning:
+
+```bash
+make up
+```
+
+`make up` runs `docker compose down -v` first, which deletes the `postgres_data` volume — the database is fully empty on each restart. When the command returns, all services are confirmed healthy and the DB schemas have been re-initialised.
+
+Either way, startup order is handled automatically:
+1. **postgres** starts and passes its health check
+2. **airflow-init** runs once to create the Airflow metadata schema and `admin` user, then exits
+3. **airflow-webserver** and **airflow-scheduler** wait for init to complete, then start
+4. **api** starts once postgres is healthy
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
@@ -95,12 +103,6 @@ docker compose ps   # all should show "healthy" or "exited (0)"
 | FastAPI docs | http://localhost:8000/docs | — |
 | FastAPI ReDoc | http://localhost:8000/redoc | — |
 | PostgreSQL | `localhost:5432` | superuser `postgres` / `postgres` |
-
-**Clean restart** (wipes all data and starts fresh):
-
-```bash
-docker compose down -v --remove-orphans && docker compose up -d --build --remove-orphans
-```
 
 ---
 
@@ -117,7 +119,7 @@ ls data/input_files/*.xlsm
 ### 4 — Trigger the pipeline
 
 **Via the Airflow UI:**
-1. Open http://localhost:8091
+1. Open http://localhost:8091 and log in with `admin` / `admin`
 2. Unpause the `corporate_ratings_pipeline` DAG (toggle on the left).
 3. Click **Trigger DAG** (play button ▶).
 
@@ -241,10 +243,10 @@ ORDER BY loaded_at_utc DESC;
 
 ### All tests (unit + integration) — single command
 
-No prior `docker compose up -d` is needed. This command starts all required services from scratch (or reuses running ones), then runs all 213 tests:
+No prior `make up` is needed. This command starts all required services from scratch (or reuses running ones), then runs all tests:
 
 ```bash
-docker compose --profile all-tests run --rm all-tests
+make test
 ```
 
 Expected output:
@@ -266,7 +268,7 @@ Integration tests write to the `corporate_test` schema — the production `publi
 ### Unit tests only
 
 ```bash
-docker compose --profile test run --rm tests
+make test-unit
 ```
 
 Expected: `159 passed`
@@ -283,7 +285,7 @@ docker compose --profile test run --rm tests \
 ### Integration tests only
 
 ```bash
-docker compose --profile integration-test run --rm integration-tests
+make test-integration
 ```
 
 Expected: `54 passed`
@@ -375,5 +377,5 @@ ALERT_EMAIL: "alerts@yourteam.com"    # set "" to disable
 docker compose down
 
 # Stop and remove everything including volumes
-docker compose down -v
+make down
 ```

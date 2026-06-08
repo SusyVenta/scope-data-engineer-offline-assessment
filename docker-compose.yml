@@ -12,15 +12,20 @@
 #   tests             – Unit-test runner (profile: test)
 #   integration-tests – Integration-test runner (profile: integration-test)
 #
-# Quick start (production stack):
-#   docker compose up -d --build --remove-orphans
+# Quick start (production / first time):
+#   docker compose up -d
 #   Open http://localhost:8091 and trigger the `corporate_ratings_pipeline` DAG
 #
-# Run all tests (no prior `up` needed — starts all deps automatically):
-#   docker compose --profile all-tests run --rm all-tests
+# Development (clean restart — wipes data and rebuilds):
+#   make up
 #
-# Clean restart (wipes data):
-#   docker compose down -v --remove-orphans && docker compose up -d --build --remove-orphans
+# Run all tests (no prior up needed — starts all deps automatically):
+#   make test          (unit + integration)
+#   make test-unit
+#   make test-integration
+#
+# Tear down (wipes all data and volumes):
+#   make down
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -31,6 +36,7 @@ x-airflow-common:
   build:
     context: ./airflow
     dockerfile: Dockerfile
+  pull_policy: build
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -171,6 +177,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    pull_policy: build
     ports:
       - "8000:8000"
     environment:
@@ -201,6 +208,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    pull_policy: build
     ports:
       - "8001:8000"
     environment:
