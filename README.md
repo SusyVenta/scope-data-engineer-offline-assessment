@@ -409,7 +409,7 @@ The pipeline models a **corporate credit rating workflow** with seven tables in 
 - `dim_company_rating_methodology` — bridge: each company *version* is assessed under one or more rating methodologies; supports N methodologies per company
 
 **Fact layer** — measurements:
-- `fact_ratings` — one row per (company version, upload); the full set of rating sub-scores from the MASTER sheet (business/financial risk profiles, leverage, liquidity, etc.)
+- `fact_ratings` — one row per company version; the full set of rating sub-scores from the MASTER sheet (business/financial risk profiles, leverage, liquidity, etc.)
 - `fact_scope_credit_hist` — one row per (company version, upload, metric, year); captures the time-series Scope Credit Metrics across historical and estimated years
 
 **Key relationships:**
@@ -504,12 +504,12 @@ erDiagram
     }
 
     pipeline_run_state ||--o{ upload_log : "dag_run_id"
-    upload_log ||--o{ dim_company : "source_upload_id"
-    upload_log ||--o{ fact_ratings : "upload_id"
+    upload_log |o--o| dim_company : "source_upload_id"
+    upload_log ||--o| fact_ratings : "upload_id"
     upload_log ||--o{ fact_scope_credit_hist : "upload_id"
     dim_company ||--o{ dim_company_industry_risk : "company_id (versioned)"
     dim_company ||--o{ dim_company_rating_methodology : "company_id (versioned)"
-    dim_company ||--o{ fact_ratings : "company_id"
+    dim_company ||--o| fact_ratings : "company_id"
     dim_company ||--o{ fact_scope_credit_hist : "company_id"
 ```
 
@@ -522,7 +522,7 @@ erDiagram
 | `dim_company` | 1 row per (entity, version) | `UNIQUE(entity_name, valid_from)` |
 | `dim_company_industry_risk` | 1 row per (company version, risk) | `PK(company_id, industry_risk_name)` |
 | `dim_company_rating_methodology` | 1 row per (company version, methodology) | `PK(company_id, rating_methodology_name)` |
-| `fact_ratings` | 1 row per (upload, company version) | `UNIQUE(upload_id, company_id)` |
+| `fact_ratings` | 1 row per company version | `UNIQUE(company_id)` |
 | `fact_scope_credit_hist` | 1 row per (upload, metric, year) | `UNIQUE(upload_id, metric_name, year)` |
 
 ### Indexes
@@ -535,7 +535,7 @@ erDiagram
 | `idx_fact_scope_credit_company_metric_year` | B-tree `(company_id, metric_name, year)` | Time-series endpoint: filter by company, order by metric + year |
 | `idx_fact_scope_credit_loaded_brin` | BRIN `(loaded_at_utc)` | Same range-pruning benefit as `fact_ratings`; see note on partitioning below |
 
-> **Partitioning strategy at scale**: Both fact tables are designed for `PARTITION BY RANGE (loaded_at_utc)` with annual sub-tables once row counts exceed ~50 M. The BRIN indexes above provide equivalent range-pruning benefits at current data volumes without the operational complexity of partition management. Note that PostgreSQL's global `UNIQUE` constraint cannot span partitions, so the deduplication keys (`UNIQUE(upload_id, company_id)` and `UNIQUE(upload_id, metric_name, year)`) would need to be enforced per-partition when partitioning is adopted.
+> **Partitioning strategy at scale**: Both fact tables are designed for `PARTITION BY RANGE (loaded_at_utc)` with annual sub-tables once row counts exceed ~50 M. The BRIN indexes above provide equivalent range-pruning benefits at current data volumes without the operational complexity of partition management. Note that PostgreSQL's global `UNIQUE` constraint cannot span partitions, so the deduplication keys (`UNIQUE(company_id)` and `UNIQUE(upload_id, metric_name, year)`) would need to be enforced per-partition when partitioning is adopted.
 
 ### Key design decisions and assumptions
 

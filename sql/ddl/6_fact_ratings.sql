@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS fact_ratings (
 
     data_hash                        TEXT          NOT NULL,
     loaded_at_utc                    TIMESTAMPTZ   NOT NULL DEFAULT now(),
-
-    UNIQUE (upload_id, company_id)
+    
+    UNIQUE (company_id)
 );
 
 -- Per-company rating history queries (/companies/{name}/history, /snapshots?company_id=...).
