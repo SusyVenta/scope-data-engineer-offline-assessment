@@ -2,27 +2,15 @@
 # =============================================================================
 # init_db.sh
 # Runs once on first PostgreSQL container start (mounted into
-# /docker-entrypoint-initdb.d/).  Creates two logically separate databases
-# on the shared PostgreSQL instance:
+# /docker-entrypoint-initdb.d/).  Creates two databases and one test schema:
 #
-#   airflow  – Airflow's internal metadata store: DAG runs, task instances,
-#              connections, variables, user accounts, scheduler heartbeats.
-#              Owned by the `airflow` user; the pipeline has no access to it.
-#
-#   retail   – The pipeline's application database: retail_transactions and
-#              all analysis output tables written by the Spark jobs and SQL
-#              tasks.  Owned by the `retail` user; Airflow itself never writes
-#              here (only the tasks it orchestrates do).
-#
-# Keeping the two databases separate enforces least-privilege isolation:
-# the `retail` user cannot read Airflow internals, and the `airflow` user
-# cannot access business data.  In production each would typically run on its
-# own database cluster; sharing a single Postgres instance here is a
-# development/demo convenience to keep the Docker Compose stack minimal.
+#   airflow          – Airflow's internal metadata store. Owned by `airflow`.
+#   corporate        – The pipeline's application database.
+#     public         – Production schema (default). Written by the ETL DAG.
+#     corporate_test – Integration-test schema. Same tables, isolated from prod.
 # =============================================================================
 set -euo pipefail
 
-# The entrypoint already connected as POSTGRES_USER (postgres superuser).
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
 
     -- ------------------------------------------------------------------
@@ -43,22 +31,30 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT ALL PRIVILEGES ON DATABASE airflow TO airflow;
 
     -- ------------------------------------------------------------------
-    -- Retail pipeline database
+    -- Corporate ratings pipeline database
     -- ------------------------------------------------------------------
     DO \$\$
     BEGIN
-        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'retail') THEN
-            CREATE USER retail WITH PASSWORD 'retail';
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'corporate') THEN
+            CREATE USER corporate WITH PASSWORD 'corporate';
         END IF;
     END
     \$\$;
 
-    SELECT 'CREATE DATABASE retail OWNER retail'
-    WHERE  NOT EXISTS (SELECT FROM pg_database WHERE datname = 'retail')
+    SELECT 'CREATE DATABASE corporate OWNER corporate'
+    WHERE  NOT EXISTS (SELECT FROM pg_database WHERE datname = 'corporate')
     \gexec
 
-    GRANT ALL PRIVILEGES ON DATABASE retail TO retail;
+    GRANT ALL PRIVILEGES ON DATABASE corporate TO corporate;
 
 EOSQL
 
-echo "[init_db] Databases 'airflow' and 'retail' ready."
+# Create the corporate_test schema inside the corporate database.
+# Integration tests run the pipeline against this schema so the production
+# public schema is never touched by test runs.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "corporate" <<-EOSQL
+    CREATE SCHEMA IF NOT EXISTS corporate_test AUTHORIZATION corporate;
+    GRANT ALL ON SCHEMA corporate_test TO corporate;
+EOSQL
+
+echo "[init_db] Databases ready: 'airflow', 'corporate' (schemas: public, corporate_test)."

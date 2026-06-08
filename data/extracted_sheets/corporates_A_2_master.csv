@@ -1,0 +1,31 @@
+1,,Rated entity,Company A,,,,,,,,,,
+2,,CorporateSector,Personal & Household Goods,,,,,,,,,,
+4,,Rating methodologies applied,General Corporate Rating Methodology,,,,,,,,,,
+6,,Industry risk,Consumer Products: Non-Discretionary,,,,,,,,,,
+7,,Industry risk score,BBB,,,,,,,,,,
+8,,Industry weight,1,,,,,,,,,,
+9,,Segmentation criteria,EBITDA contribution,,,,,,,,,,
+11,,Reporting Currency/Units,EUR,,,,,,,,,,
+12,,Country of origin,Federal Republic of Germany,,,,,,,,,,
+13,,Accounting principles,IFRS,,,,,,,,,,
+14,,End of business year,December,,,,,,,,,,
+17,,Business risk profile,B,,,,,,,,,,
+18,,(Blended) Industry risk profile,A,,,,,,,,,,
+19,,Competitive Positioning,B+,,,,,,,,,,
+20,,Market share,B+,,,,,,,,,,
+21,,Diversification,B+,,,,,,,,,,
+22,,Operating profitability,B,,,,,,,,,,
+23,,Sector/company-specific factors (1),B-,,,,,,,,,,
+24,,Sector/company-specific factors (2),,,,,,,,,,,
+26,,Financial risk profile,CC,,,,,,,,,,
+27,,Leverage,CCC,,,,,,,,,,
+28,,Interest cover,B-,,,,,,,,,,
+29,,Cash flow cover,CCC,,,,,,,,,,
+30,,Liquidity,-2 notches,,,,,,,,,,
+34,,[Scope Credit Metrics],2018,2019.0,2020.0,2021.0,2022.0,2023,2024.0,2025E,2026E,2027E,
+35,,Scope-adjusted EBITDA interest cover,27.32900000000001,27.32900000000001,27.32900000000001,4.862,4.862,4.862,36.79999999999997,36.79999999999997,18.4912526,18.4912526,Locked
+36,,Scope-adjusted debt/EBITDA,18.4912526,18.4912526,18.4912526,18.4912526,18.4912526,18.4912526,36.79999999999997,36.79999999999997,18.4912526,18.4912526,Locked
+37,,Scope-adjusted FFO/debt,22,22.0,22.0,36.79999999999997,36.79999999999997,27.32900000000001,29.0,29,29,8,Locked
+38,,Scope-adjusted loan/value,27.32900000000001,27.32900000000001,27.32900000000001,36.79999999999997,36.79999999999997,No data,27.32900000000001,27.32900000000001,27.32900000000001,4.862,Locked
+39,,Scope-adjusted FOCF/debt,21.53185742374875,21.53185742374875,21.53185742374875,21.53185742374875,4.862,4.862,4.862,4.862,4.862,4.862,Locked
+40,,Liquidity,4.862,4.862,4.862,21.53185742374875,21.53185742374875,21.53185742374875,21.53185742374875,21.53185742374875,21.53185742374875,23,Locked

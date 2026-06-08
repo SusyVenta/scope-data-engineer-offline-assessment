@@ -1,6 +1,6 @@
-# Online Retail Data Pipeline
+# Corporate Credit Rating Data Pipeline
 
-End-to-end data pipeline using **Apache Spark**, **Apache Airflow**, and **PostgreSQL**, orchestrated with Docker Compose. Implements requirements specified in 'Pipeline_requirements.pdf'.
+End-to-end data pipeline for corporate credit rating Excel files. Extracts, validates, transforms, and loads structured rating data into a PostgreSQL star schema, orchestrated with **Apache Airflow** and queryable via a **FastAPI** REST service — all in Docker Compose.
 
 ---
 
@@ -9,33 +9,46 @@ End-to-end data pipeline using **Apache Spark**, **Apache Airflow**, and **Postg
 ```
 .
 ├── airflow/
-│   └── Dockerfile                  # Custom Airflow image (Java 17 + PySpark + providers)
+│   └── Dockerfile                  # Custom Airflow image (pandas + openpyxl + providers)
+├── api/
+│   ├── Dockerfile                  # FastAPI service image
+│   ├── main.py                     # App entry point; wires all routers
+│   ├── db.py                       # psycopg2 connection pool
+│   ├── models.py                   # Pydantic response models
+│   └── routers/
+│       ├── companies.py            # GET /companies (list, compare, versions, history)
+│       ├── snapshots.py            # GET /snapshots (list, latest, by id)
+│       └── uploads.py             # GET /uploads (list, details, stats)
+├── corporate_pipeline/
+│   ├── extractor.py                # Excel → pandas DataFrame + RawMasterRecord
+│   ├── validator.py                # Data quality checks (NOT NULL, regex, value sets)
+│   ├── transformer.py              # Normalise, hash, build RatingRecord
+│   └── loader.py                   # SCD2 upserts, incremental load, duplicate detection
 ├── dags/
-│   └── retail_pipeline_dag.py      # Airflow DAG (daily schedule)
+│   └── corporate_ratings_dag.py    # Airflow DAG (daily schedule, 5 tasks)
 ├── data/
-│   └── retails.csv                 # Raw dataset (place here before running)
-├── spark/
-│   └── jobs/
-│       ├── clean_and_ingest.py     # PySpark: cleaning, PII anonymisation, PostgreSQL write
-│       └── analysis.py             # PySpark: total revenue, top-10 products, monthly trend
+│   ├── input_files/                # Place .xlsm rating files here
+│   └── extracted_sheets/           # Auto-created: one CSV per extracted sheet
 ├── sql/
-│   ├── ddl/                                # DDL files: one CREATE TABLE IF NOT EXISTS per output table
-│   │   ├── retail_transactions.sql
-│   │   ├── analysis_top10_products.sql
-│   │   ├── analysis_monthly_revenue.sql
-│   │   ├── sql_top_3_products_last_6m.sql
-│   │   └── sql_rolling_3m_avg_australia.sql
-│   ├── init_db.sh                      # Creates airflow + retail databases on first Postgres start
-│   ├── top_3_products_last_6m.sql      # SQL: top-3 products by revenue per month (last 6 months)
-│   ├── rolling_3m_avg_australia.sql    # SQL: rolling 3-month average revenue for Australia
+│   ├── ddl/
+│   │   ├── dim_sector.sql
+│   │   ├── dim_country.sql
+│   │   ├── dim_currency.sql
+│   │   ├── dim_company.sql         # SCD Type 2 (valid_from/valid_to/is_current)
+│   │   ├── fact_rating_snapshot.sql  # Append-only, JSONB metrics, UNIQUE(data_hash)
+│   │   ├── upload_log.sql
+│   │   └── pipeline_run_state.sql
+│   └── init_db.sh                  # Creates airflow + corporate databases on first start
 ├── tests/
-│   ├── conftest.py                 # Shared SparkSession fixture + email notification hook
+│   ├── conftest.py                 # Shared fixtures + email notification hook
 │   ├── unit/
-│   │   ├── test_cleaning.py        # Unit tests for cleaning functions
-│   │   └── test_analysis.py        # Unit tests for analysis functions
+│   │   ├── test_extractor.py       # 57 tests: Excel parsing, key-value extraction
+│   │   ├── test_validator.py       # 45 tests: NOT NULL, regex, value-set checks
+│   │   ├── test_transformer.py     # 40 tests: normalisation, SHA-256 hashing
+│   │   └── test_loader.py          # 17 tests: SCD2, incremental load, deduplication
 │   └── integration/
-│       └── test_integration.py     # End-to-end DAG tests (requires full stack)
-├── docker-compose.yml              # Postgres 15, Spark 3.5 master+worker, custom Airflow (webserver + scheduler + init)
+│       └── test_integration.py     # End-to-end DAG + API tests (requires full stack)
+├── docker-compose.yml
 └── README.md
 ```
 
@@ -43,393 +56,324 @@ End-to-end data pipeline using **Apache Spark**, **Apache Airflow**, and **Postg
 
 ## Prerequisites
 
-## 1 — Install Docker
+### Install Docker
 
-### macOS - tested v. 29.2.1
-
-Download Docker Desktop directly from https://www.docker.com/products/docker-desktop/
-
-Then open **Docker.app** from `/Applications` and complete the first-run setup.
+Download Docker Desktop from https://www.docker.com/products/docker-desktop/ and complete first-run setup.
 
 ```bash
-docker --version            # Docker version 29.2.1, build a5c7197        
-docker compose version      # Docker Compose version v5.1.0
+docker --version            # Docker version 29.x.x
+docker compose version      # Docker Compose version v2.x.x
 ```
-
-## 2 — Build images
-
-```bash
-docker compose build
-```
-
-This builds the custom Airflow image (adds OpenJDK 17, PySpark 3.5, and the Spark + Postgres Airflow providers on top of `apache/airflow:2.9.3`).
-
-> **Apple Silicon (M1/M2/M3) note:** The Dockerfile creates an arch-independent
-> `JAVA_HOME` symlink at build time, so the image works correctly on both
-> `arm64` and `amd64` hosts without any changes.
 
 ---
 
-## 3 — Start infrastructure services
+## Quick start
+
+### 1 — Start everything
+
+One command builds images and starts all services in the correct dependency order:
 
 ```bash
-docker compose up -d postgres spark-master spark-worker && sleep 12 && docker compose ps
+docker compose up -d --build --remove-orphans
 ```
 
-- `-d` detached mode. Containers start in the background and your terminal returns immediately.
-- `ps`: print status of all running services
+What happens automatically:
+1. **postgres** starts and passes its health check
+2. **airflow-init** runs once to create the Airflow metadata schema and `admin` user, then exits
+3. **airflow-webserver** and **airflow-scheduler** wait for init to complete, then start
+4. **api** starts once postgres is healthy
+
+Wait for all services to become healthy (≈ 60 s on first start):
+
+```bash
+docker compose ps   # all should show "healthy" or "exited (0)"
+```
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Airflow UI | http://localhost:8091 | `admin` / `admin` |
+| FastAPI docs | http://localhost:8000/docs | — |
+| FastAPI ReDoc | http://localhost:8000/redoc | — |
+| PostgreSQL | `localhost:5432` | superuser `postgres` / `postgres` |
+
+**Clean restart** (wipes all data and starts fresh):
+
+```bash
+docker compose down -v --remove-orphans && docker compose up -d --build --remove-orphans
+```
 
 ---
 
-## 4 — Initialise Airflow
+### 2 — Place input files
 
-Run once to create the Airflow metadata schema and the `admin` user:
+Copy your `.xlsm` rating files into `data/input_files/`:
 
 ```bash
-docker compose run --rm airflow-init
+ls data/input_files/*.xlsm
 ```
-
-- `rm`: remoeves the container once the one-off setup task is done running
-
-Expected output ends with: `[airflow-init] Initialisation complete.`
 
 ---
 
-## 5 — Start Airflow services
+### 4 — Trigger the pipeline
 
-```bash
-docker compose up -d airflow-webserver airflow-scheduler
-```
+**Via the Airflow UI:**
+1. Open http://localhost:8091
+2. Unpause the `corporate_ratings_pipeline` DAG (toggle on the left).
+3. Click **Trigger DAG** (play button ▶).
 
-| Service | URL |
-|---------|-----|
-| Airflow UI | http://localhost:8090 (user: `admin` / password: `admin`) |
-| Spark master UI | http://localhost:8080 |
-| PostgreSQL | `localhost:5432` (superuser: `postgres` / `postgres`) |
-
----
-
-## 6 — Trigger the pipeline
-
-### Via the Airflow UI
-1. Open http://localhost:8090
-2. Unpause the `retail_pipeline` DAG (toggle on the left).
-3. Click **Trigger DAG** (play button).
-
-### Via the CLI
+**Via the CLI:**
 
 ```bash
 docker compose exec airflow-scheduler \
-    airflow dags trigger retail_pipeline
+    airflow dags trigger corporate_ratings_pipeline
 ```
 
 ---
 
-## 7 — Monitor execution
+### 5 — Monitor execution
 
 ```bash
 # Live scheduler logs
 docker compose logs -f airflow-scheduler
 
-# Individual task logs are available in the Airflow UI under
-# DAGs → retail_pipeline → <run> → <task> → Logs
+# Task logs are in the Airflow UI:
+# DAGs → corporate_ratings_pipeline → <run> → <task> → Logs
+```
+
+The DAG has five sequential steps:
+
+```
+create_tables >> extract_sheets >> validate_data >> transform_data >> load_to_warehouse
+```
+
+| Task | Description |
+|------|-------------|
+| `create_tables` | Applies all DDL files (`CREATE TABLE IF NOT EXISTS`) |
+| `extract_sheets` | Reads each staged `.xlsm`, saves extracted CSV, pushes `RawMasterRecord` list via XCom |
+| `validate_data` | NOT NULL, regex, value-set and weight checks; fails on any CRITICAL error |
+| `transform_data` | Normalises fields, computes SHA-256 data hash, produces `RatingRecord` list |
+| `load_to_warehouse` | SCD2 upserts to `dim_*`, inserts `upload_log` + `fact_rating_snapshot`; skips duplicates with WARNING |
+
+**Incremental loading:** only files modified after the last successful DAG run are staged. If a file is re-uploaded with identical content (hash match), it is skipped with a clear `WARNING` log and the run completes successfully.
+
+---
+
+### 6 — Explore the API
+
+Interactive docs at http://localhost:8000/docs.
+
+**Sample requests:**
+
+```bash
+# List current companies
+curl http://localhost:8000/companies
+
+# All SCD2 versions for company 1
+curl http://localhost:8000/companies/1/versions
+
+# Rating history (all snapshots) for company 1
+curl http://localhost:8000/companies/1/history
+
+# Latest snapshot per company
+curl http://localhost:8000/snapshots/latest
+
+# All snapshots for a company
+curl "http://localhost:8000/snapshots?company_id=1"
+
+# Compare two companies at a point in time
+curl "http://localhost:8000/companies/compare?company_ids=1,2&as_of_date=2024-06-01T00:00:00"
+
+# Upload stats
+curl http://localhost:8000/uploads/stats
+
+# Details for upload 1 (includes snapshots)
+curl http://localhost:8000/uploads/1/details
 ```
 
 ---
 
-## 8 — Inspect results in PostgreSQL
-
-Connect with any PostgreSQL client (e.g. `psql`, DBeaver, or the CLI below):
+### 7 — Inspect results in PostgreSQL
 
 ```bash
 docker compose exec postgres \
-    psql -U retail -d retail
+    psql -U corporate -d corporate
 ```
 
-Useful queries after the pipeline has run:
+Useful queries:
 
 ```sql
--- List all tables in the current database
-\dt
+-- Pipeline run history
+SELECT dag_run_id, status, files_staged, files_loaded, files_skipped, completed_at_utc
+FROM pipeline_run_state
+ORDER BY started_at_utc DESC;
 
--- Cleaned transactions (latest pipeline run)
-SELECT COUNT(*), COUNT(DISTINCT invoice_no), MIN(invoice_date), MAX(invoice_date)
-FROM retail_transactions
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM retail_transactions);
+-- All current companies
+SELECT dc.entity_name, ds.sector_name, dco.country_name, dcu.currency_code,
+       dc.accounting_principles, dc.valid_from
+FROM dim_company dc
+LEFT JOIN dim_sector   ds  ON ds.sector_id   = dc.sector_id
+LEFT JOIN dim_country  dco ON dco.country_id = dc.country_id
+LEFT JOIN dim_currency dcu ON dcu.currency_id = dc.currency_id
+WHERE dc.is_current = TRUE
+ORDER BY dc.entity_name;
 
--- Top 10 products (latest pipeline run)
-SELECT * FROM analysis_top10_products
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM analysis_top10_products)
-ORDER BY quantity_sold DESC;
+-- All rating snapshots
+SELECT entity_name, business_risk_profile, financial_risk_profile,
+       loaded_at_utc
+FROM fact_rating_snapshot
+ORDER BY loaded_at_utc DESC;
 
--- Monthly revenue trend (latest pipeline run)
-SELECT * FROM analysis_monthly_revenue
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM analysis_monthly_revenue)
-ORDER BY year_month;
+-- SCD2 history for a company
+SELECT entity_name, valid_from, valid_to, is_current
+FROM dim_company
+WHERE entity_name = 'Acme Corp'
+ORDER BY valid_from;
 
--- SQL analysis results (latest pipeline run)
-SELECT * FROM sql_top_3_products_last_6m
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM sql_top_3_products_last_6m)
-ORDER BY month DESC, revenue_rank;
-
-SELECT * FROM sql_rolling_3m_avg_australia
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM sql_rolling_3m_avg_australia)
-ORDER BY month;
+-- Upload log
+SELECT source_filename, rows_extracted, data_hash, loaded_at_utc
+FROM upload_log
+ORDER BY loaded_at_utc DESC;
 ```
 
 ---
 
-## 9 — Run SQL analysis queries manually
+## Running tests
+
+### All tests (unit + integration) — single command
+
+No prior `docker compose up -d` is needed. This command starts all required services from scratch (or reuses running ones), then runs all 213 tests:
 
 ```bash
-# Top 3 products by revenue per month (last 6 months)
-docker compose exec postgres \
-    psql -U retail -d retail \
-    -f /opt/airflow/sql/top_3_products_last_6m.sql
-
-# Rolling 3-month average revenue for Australia
-docker compose exec postgres \
-    psql -U retail -d retail \
-    -f /opt/airflow/sql/rolling_3m_avg_australia.sql
+docker compose --profile all-tests run --rm all-tests
 ```
 
-Or copy-paste from [sql/top_3_products_last_6m.sql](sql/top_3_products_last_6m.sql) and [sql/rolling_3m_avg_australia.sql](sql/rolling_3m_avg_australia.sql) into any PostgreSQL client connected to the `retail` database.
+Expected output:
+
+```
+213 passed in ~40s
+```
+
+The command handles everything automatically:
+- Builds images if not already built
+- Starts postgres, Airflow init, webserver, scheduler, and a test-isolated API instance
+- Truncates the `corporate_test` schema before the integration run so tests always start clean
+- Tears down the run container when done (long-running services remain up)
+
+Integration tests write to the `corporate_test` schema — the production `public` schema is never touched.
 
 ---
 
-## 10 — Run unit tests inside Docker (recommended)
-
-The `tests` service reuses the custom Airflow image (Java 17 + PySpark 3.5 +
-pytest already installed). No local Python/Java setup required.
-
-**Step 1 — build the image** (skip if you already ran `docker compose build`):
-
-```bash
-docker compose --profile test build tests
-```
-
-**Step 2 — run the tests:**
+### Unit tests only
 
 ```bash
 docker compose --profile test run --rm tests
 ```
 
-Expected output ends with something like:
+Expected: `159 passed`
 
-```
-============================== 65 passed in 10.xx s ==============================
-```
-
-**Run with coverage report:**
+**Coverage report:**
 
 ```bash
 docker compose --profile test run --rm tests \
-    python -m pytest -v --tb=short \
-    --cov=spark/jobs --cov-report=term-missing
+    python -m pytest tests/unit --cov=corporate_pipeline --cov-report=term-missing
 ```
-
-**Re-run a single test class or file:**
-
-```bash
-# Single file
-docker compose --profile test run --rm tests \
-    python -m pytest tests/unit/test_cleaning.py -v
-
-# Single test class
-docker compose --profile test run --rm tests \
-    python -m pytest tests/unit/test_cleaning.py::TestCleanDataIntegration -v
-```
-
-The tests run PySpark in **local mode** — no Spark cluster or PostgreSQL
-connection needed.
 
 ---
 
-## 11 — Run integration tests (end-to-end DAG)
-
-The integration tests trigger the full `retail_pipeline` DAG against the live stack, wait for it to complete, then verify the output in PostgreSQL.
-
-**Prerequisites:** the full stack must be running (steps 3–5 completed).
+### Integration tests only
 
 ```bash
 docker compose --profile integration-test run --rm integration-tests
 ```
 
-The test runner:
-1. Cancels any lingering active DAG runs (avoids `max_active_runs=1` blocking)
-2. Triggers a fresh manual run
-3. Polls every 15 s until the DAG succeeds or fails (timeout: 15 min)
-4. Asserts all 5 tasks succeeded
-5. Queries PostgreSQL to verify `retail_transactions`, `analysis_top10_products`, and `analysis_monthly_revenue`
+Expected: `54 passed`
 
-Expected output ends with:
+The integration test suite:
+1. Truncates the `corporate_test` schema and clears prior DAG runs
+2. Triggers the `corporate_ratings_pipeline` DAG (using the test Airflow connection)
+3. Polls every 15 s until success (timeout 15 min)
+4. Verifies all 5 tasks succeeded and checks every DB table
+5. Re-triggers and verifies idempotency (`files_loaded=0`)
+6. Exercises all `/companies`, `/snapshots`, and `/uploads` API endpoints
+
+---
+
+## Schema overview
 
 ```
-============================== 15 passed in XX.XXs ==============================
+dim_sector ──┐
+dim_country ─┼──► dim_company (SCD Type 2) ──► fact_rating_snapshot ◄── upload_log
+dim_currency ┘                                        │
+                                           scope_credit_metrics (JSONB)
 ```
+
+### Tables
+
+| Table | Description |
+|-------|-------------|
+| `dim_sector` | Unique sector names |
+| `dim_country` | Unique country names |
+| `dim_currency` | ISO 3-letter currency codes |
+| `dim_company` | SCD Type 2: one row per version; `is_current=TRUE` is the active version |
+| `fact_rating_snapshot` | Append-only rating scores per upload; `data_hash` prevents duplicates |
+| `upload_log` | One row per processed file; tracks filename, modification time, hash, row count |
+| `pipeline_run_state` | One row per DAG run; tracks status, file counts, timestamps |
+
+---
+
+## Incremental loading and deduplication
+
+- **File-level incremental**: `stage_modified_files` compares each file's `mtime` against the last successful run timestamp from `pipeline_run_state`. Files not modified since the last run are skipped entirely.
+- **Content-level deduplication**: a SHA-256 hash of all business fields (excluding filename and mtime) is computed at transform time. Before inserting, `hash_already_loaded` queries `upload_log`. If the hash exists, the file is skipped with a `WARNING` log and the run exits successfully — no duplicate rows are ever written to `fact_rating_snapshot`.
 
 ---
 
 ## Email notifications
 
-The pipeline and test runner can send email alerts on failure. Notifications are **disabled by default** — set `ALERT_EMAIL` to a non-empty address to enable them.
+Notifications are disabled by default. Set `ALERT_EMAIL` to enable them.
 
-### Where to configure
-
-All SMTP settings live in **`docker-compose.yml`** under the `x-airflow-common` block (for DAG task alerts) and mirrored in the `tests` / `integration-tests` service blocks (for test-runner alerts):
+All SMTP settings live in `docker-compose.yml` under `x-airflow-common`:
 
 ```yaml
-AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"   # ← your SMTP server
+AIRFLOW__SMTP__SMTP_HOST: "smtp.gmail.com"
 AIRFLOW__SMTP__SMTP_PORT: "587"
 AIRFLOW__SMTP__SMTP_STARTTLS: "true"
-AIRFLOW__SMTP__SMTP_SSL: "false"
-AIRFLOW__SMTP__SMTP_USER: "sender@example.com" # ← sending address
-AIRFLOW__SMTP__SMTP_PASSWORD: ""               # ← SMTP password or app password
-AIRFLOW__SMTP__SMTP_MAIL_FROM: "sender@example.com"
-ALERT_EMAIL: "alerts@example.com"             # ← recipient; set "" to disable
+AIRFLOW__SMTP__SMTP_USER: "you@gmail.com"
+AIRFLOW__SMTP__SMTP_PASSWORD: "your-app-password"
+AIRFLOW__SMTP__SMTP_MAIL_FROM: "you@gmail.com"
+ALERT_EMAIL: "alerts@yourteam.com"    # set "" to disable
 ```
-
-### What triggers a notification
 
 | Event | Mechanism |
 |-------|-----------|
-| Any Airflow task fails (after all retries) | Airflow built-in `email_on_failure` — reads `AIRFLOW__SMTP__*` + `ALERT_EMAIL` |
-| Any unit or integration test fails | `pytest_sessionfinish` hook in `tests/conftest.py` — reads the same env vars |
+| Any Airflow task fails (after retries) | Airflow built-in `email_on_failure` |
+| Any unit or integration test fails | `pytest_sessionfinish` hook in `tests/conftest.py` |
 
-### Gmail example
+> **Security:** avoid committing real SMTP credentials. Use a `.env` file (add to `.gitignore`) or a secrets manager in production.
 
-1. Enable **2-Step Verification** on your Google account.
-2. Generate an **App Password** (Google Account → Security → App Passwords).
-3. In `docker-compose.yml` set:
-   ```yaml
-   AIRFLOW__SMTP__SMTP_HOST: "smtp.gmail.com"
-   AIRFLOW__SMTP__SMTP_USER: "you@gmail.com"
-   AIRFLOW__SMTP__SMTP_PASSWORD: "your-16-char-app-password"
-   AIRFLOW__SMTP__SMTP_MAIL_FROM: "you@gmail.com"
-   ALERT_EMAIL: "alerts@yourteam.com"
-   ```
-4. Restart the stack: `docker compose up -d airflow-webserver airflow-scheduler`
+---
 
-> **Security note:** avoid committing real SMTP credentials to version control.
-> Use a `.env` file (listed in `.gitignore`) or a secrets manager in production.
+## Environment variables reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INPUT_FILES_DIR` | `/opt/airflow/data/input_files` | Directory scanned for `.xlsm` files |
+| `EXTRACTED_SHEETS_DIR` | `/opt/airflow/data/extracted_sheets` | Output directory for extracted CSVs |
+| `POSTGRES_HOST` | `postgres` | PostgreSQL hostname |
+| `POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `POSTGRES_DB` | `corporate` | Corporate database name |
+| `POSTGRES_USER` | `corporate` | Database user |
+| `POSTGRES_PASSWORD` | `corporate` | Database password |
+| `ALERT_EMAIL` | `""` | Failure alert recipient; empty = disabled |
 
 ---
 
 ## Tear down
 
 ```bash
-# Stop and remove containers (keeps volumes / data)
+# Stop containers (keeps data)
 docker compose down
 
 # Stop and remove everything including volumes
 docker compose down -v
 ```
-
----
-
-## Architecture overview
-
-```
-                  ┌──────────────────────────────────────────┐
-                  │              docker network               │
-                  │                                          │
-  retails.csv ──► │  airflow-scheduler                       │
-  (./data/)       │    └─► SparkSubmitOperator               │
-                  │          └─► spark-master:7077            │
-                  │                └─► spark-worker           │
-                  │                      │                    │
-                  │            (JDBC write / read)            │
-                  │                      │                    │
-                  │                 postgres                  │
-                  │                  ├─ airflow DB            │
-                  │                  └─ retail DB             │
-                  └──────────────────────────────────────────┘
-```
-
-### Pipeline DAG
-
-```
-                                         ┌─► run_pyspark_analysis
-create_tables ──► ingest_and_clean ──────┤
-                                         ├─► sql_top_3_products_last_6m
-                                         └─► sql_rolling_3m_avg_australia
-```
-
-| Task | Tool | Description |
-|------|------|-------------|
-| `create_tables` | PythonOperator | Applies every DDL file in `sql/ddl/` (`CREATE TABLE IF NOT EXISTS`) so all output tables exist with precise column types before any data is written |
-| `ingest_and_clean` | SparkSubmitOperator | Reads CSV, cleans data, anonymises CustomerID (PII), appends to `retail_transactions` |
-| `run_pyspark_analysis` | SparkSubmitOperator | Reads from PostgreSQL; computes total revenue, top-10 products, monthly trend; appends to `analysis_top10_products` and `analysis_monthly_revenue` |
-| `sql_top_3_products_last_6m` | PythonOperator | Executes `top_3_products_last_6m.sql`, logs sample rows, appends full result to `sql_top_3_products_last_6m` |
-| `sql_rolling_3m_avg_australia` | PythonOperator | Executes `rolling_3m_avg_australia.sql`, logs sample rows, appends full result to `sql_rolling_3m_avg_australia` |
-
----
-
-## Generated tables
-
-All tables live in the `retail` PostgreSQL database and use **Type 2 append**: every pipeline run inserts new rows tagged with `loaded_at`. No data is ever overwritten or deleted. To query the latest snapshot for any table use:
-
-```sql
-WHERE loaded_at = (SELECT MAX(loaded_at) FROM <table>)
-```
-
-| Table | Written by | Columns |
-|-------|------------|---------|
-| `retail_transactions` | `ingest_and_clean` | `invoice_no`, `stock_code`, `description`, `quantity`, `invoice_date`, `unit_price`, `customer_id`, `country`, `revenue`, `is_cancellation`, **`loaded_at`** |
-| `analysis_top10_products` | `run_pyspark_analysis` | `stock_code`, `quantity_sold`, **`loaded_at`** |
-| `analysis_monthly_revenue` | `run_pyspark_analysis` | `year_month`, `monthly_revenue`, `num_transactions`, `num_customers`, `mom_growth_pct`, `yoy_growth_pct`, `rolling_3m_avg`, `rev_sigma_dist`, `mom_sigma_dist`, **`loaded_at`** |
-| `sql_top_3_products_last_6m` | `sql_top_3_products_last_6m` | `month TEXT`, `stock_code TEXT`, `description TEXT`, `total_revenue_gbp NUMERIC`, `revenue_rank BIGINT`, **`loaded_at TIMESTAMP`** |
-| `sql_rolling_3m_avg_australia` | `sql_rolling_3m_avg_australia` | `month TEXT`, `monthly_revenue_gbp NUMERIC`, `rolling_3m_avg_gbp NUMERIC`, **`loaded_at TIMESTAMP`** |
-
-> **Column types** are defined explicitly in `sql/ddl/` — one `CREATE TABLE IF NOT EXISTS` file per table. The `create_tables` DAG task applies these files before any data is written, so every table is created with precise types (e.g. `BIGINT`, `NUMERIC`, `DOUBLE PRECISION`) rather than relying on Spark or cursor inference.
-
----
-
-## Data cleaning decisions
-
-| Issue | Action |
-|-------|--------|
-| Missing `InvoiceNo` | Drop row (cannot identify transaction) |
-| Missing `Quantity` | Drop row (cannot calculate revenue) |
-| Missing `InvoiceDate` | Drop row (required for all time-based analysis) |
-| Missing `UnitPrice` | Drop row (required for revenue) |
-| Missing `StockCode` | Fill with `UNKNOWN` |
-| Missing `Country` | Fill with `Unknown` |
-| Missing `CustomerID` | Hash as `ANONYMOUS` |
-| `InvoiceNo` starts with `C` | Flag `is_cancellation = True`; kept in table, filtered in analysis |
-| Float representation artifacts (`82804.0`, `16016.0`) | Strip `.0` suffix before use / hashing |
-| Floating-point revenue drift | Recompute as `ROUND(Quantity * UnitPrice, 2)` |
-| Negative `UnitPrice` | Kept; filtered by `revenue > 0` in analysis |
-| Duplicate rows | Removed with `dropDuplicates()` |
-| `CustomerID` (PII) | Irreversibly anonymised with SHA-256 |
-
----
-
-## Environment variables reference
-
-All variables have defaults that work out of the box with docker-compose.
-Edit `docker-compose.yml` to change any value.
-
-### Pipeline
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CSV_PATH` | `/opt/airflow/data/retails.csv` | Path to raw CSV inside containers |
-| `POSTGRES_HOST` | `postgres` | PostgreSQL hostname |
-| `POSTGRES_PORT` | `5432` | PostgreSQL port |
-| `POSTGRES_DB` | `retail` | Retail database name |
-| `POSTGRES_USER` | `retail` | Retail database user |
-| `POSTGRES_PASSWORD` | `retail` | Retail database password |
-
-### Email notifications
-
-| Variable | Placeholder | Description |
-|----------|-------------|-------------|
-| `ALERT_EMAIL` | `alerts@example.com` | Failure alert recipient. Set to `""` to disable all notifications |
-| `AIRFLOW__SMTP__SMTP_HOST` | `smtp.example.com` | SMTP server hostname |
-| `AIRFLOW__SMTP__SMTP_PORT` | `587` | SMTP port (587 = STARTTLS, 465 = SSL) |
-| `AIRFLOW__SMTP__SMTP_STARTTLS` | `true` | Use STARTTLS (`true`/`false`) |
-| `AIRFLOW__SMTP__SMTP_SSL` | `false` | Use implicit SSL — set to `true` and port `465` for SSL-only servers |
-| `AIRFLOW__SMTP__SMTP_USER` | `sender@example.com` | SMTP login username |
-| `AIRFLOW__SMTP__SMTP_PASSWORD` | _(empty)_ | SMTP password or app-specific password |
-| `AIRFLOW__SMTP__SMTP_MAIL_FROM` | `sender@example.com` | From address shown in alert emails |

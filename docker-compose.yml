@@ -1,29 +1,30 @@
 # =============================================================================
 # docker-compose.yml
-# Online Retail Data Pipeline
+# Corporate Credit Rating Data Pipeline
 # =============================================================================
 # Services:
-#   postgres          – PostgreSQL 15 (hosts both Airflow metadata and retail DBs)
-#   spark-master      – Spark 3.5 standalone cluster master
-#   spark-worker      – Spark 3.5 standalone cluster worker
-#   airflow-init      – One-off container: initialises Airflow DB and creates admin user
+#   postgres          – PostgreSQL 15 (Airflow metadata + corporate ratings DB)
+#   airflow-init      – One-off: initialise Airflow DB and create admin user
 #   airflow-webserver – Airflow UI  (http://localhost:8090, admin / admin)
-#   airflow-scheduler – Airflow scheduler (submits Spark jobs via SparkSubmitOperator)
-#   tests             – Unit-test runner (profile: test)  no external services required
+#   airflow-scheduler – Airflow scheduler
+#   api               – FastAPI service (http://localhost:8000)
+#   all-tests         – All tests (unit + integration) runner (profile: all-tests)
+#   tests             – Unit-test runner (profile: test)
+#   integration-tests – Integration-test runner (profile: integration-test)
 #
-# Quick start (pipeline):
-#   1. docker compose build
-#   2. docker compose up -d postgres spark-master spark-worker
-#   3. docker compose run --rm airflow-init
-#   4. docker compose up -d airflow-webserver airflow-scheduler
-#   5. Open http://localhost:8090 and trigger the `retail_pipeline` DAG
+# Quick start (production stack):
+#   docker compose up -d --build --remove-orphans
+#   Open http://localhost:8091 and trigger the `corporate_ratings_pipeline` DAG
 #
-# Run unit tests:
-#   docker compose --profile test run --rm tests
+# Run all tests (no prior `up` needed — starts all deps automatically):
+#   docker compose --profile all-tests run --rm all-tests
+#
+# Clean restart (wipes data):
+#   docker compose down -v --remove-orphans && docker compose up -d --build --remove-orphans
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# Shared Airflow configuration (used by webserver, scheduler, and init)
+# Shared Airflow configuration
 # ---------------------------------------------------------------------------
 x-airflow-common:
   &airflow-common
@@ -32,7 +33,6 @@ x-airflow-common:
     dockerfile: Dockerfile
   environment:
     &airflow-common-env
-    # Use the local PostgreSQL service as the Airflow metadata store
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
     AIRFLOW__CORE__FERNET_KEY: "81HqDtbqAywKSOumSha3BhWNOdQ26slT6K0YaZeZyPs="
@@ -41,47 +41,34 @@ x-airflow-common:
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
 
-    # --------------- Airflow connections (no UI setup required) ---------------
-    # Spark standalone cluster master
-    # JSON format required so the host field retains the spark:// scheme;
-    # URI format (spark://...) strips the scheme into conn_type, leaving the
-    # host as bare 'spark-master:7077' which Spark cannot parse.
-    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
-    # Retail PostgreSQL database (used by PostgresOperator)
-    # JSON format sets conn_type=postgres explicitly; URI postgresql+psycopg2://
-    # is parsed as an unknown hook type by Airflow's connection registry.
-    AIRFLOW_CONN_POSTGRES_RETAIL: '{"conn_type": "postgres", "host": "postgres", "port": 5432, "schema": "retail", "login": "retail", "password": "retail"}'
+    # Airflow connections — production (public schema) and integration-test (corporate_test schema)
+    AIRFLOW_CONN_POSTGRES_CORPORATE: '{"conn_type": "postgres", "host": "postgres", "port": 5432, "schema": "corporate", "login": "corporate", "password": "corporate"}'
+    AIRFLOW_CONN_POSTGRES_CORPORATE_TEST: '{"conn_type": "postgres", "host": "postgres", "port": 5432, "schema": "corporate", "login": "corporate", "password": "corporate", "extra": "{\"options\": \"-csearch_path=corporate_test,public\"}"}'
 
-    # --------------- PySpark / Java environment --------------------------------
-    # JAVA_HOME is set by the Dockerfile via an arch-independent symlink
-    JAVA_HOME: /usr/local/java17
-
-    # --------------- Pipeline runtime config ----------------------------------
-    CSV_PATH: /opt/airflow/data/retails.csv
+    # Pipeline runtime config
+    INPUT_FILES_DIR: /opt/airflow/data/input_files
+    EXTRACTED_SHEETS_DIR: /opt/airflow/data/extracted_sheets
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
-    POSTGRES_DB: retail
-    POSTGRES_USER: retail
-    POSTGRES_PASSWORD: retail
+    POSTGRES_DB: corporate
+    POSTGRES_USER: corporate
+    POSTGRES_PASSWORD: corporate
 
-    # --------------- Email notifications (optional) ---------------------------
-    # Fill in your SMTP credentials to enable failure alerts for DAG tasks.
-    # Set ALERT_EMAIL to "" (empty string) to disable all email notifications.
-    # See README.md § "Email notifications" for full setup instructions.
-    AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"       # e.g. smtp.gmail.com
+    # Email notifications (optional — set ALERT_EMAIL to enable)
+    AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"
     AIRFLOW__SMTP__SMTP_PORT: "587"
     AIRFLOW__SMTP__SMTP_STARTTLS: "true"
     AIRFLOW__SMTP__SMTP_SSL: "false"
     AIRFLOW__SMTP__SMTP_USER: "sender@example.com"
-    AIRFLOW__SMTP__SMTP_PASSWORD: ""                   # SMTP password or app-specific password
+    AIRFLOW__SMTP__SMTP_PASSWORD: ""
     AIRFLOW__SMTP__SMTP_MAIL_FROM: "sender@example.com"
-    ALERT_EMAIL: "alerts@example.com"                  # recipient; set to "" to disable
+    ALERT_EMAIL: ""
 
   volumes:
-    - ./dags:/opt/airflow/dags                   # DAG definitions
-    - ./spark/jobs:/opt/airflow/spark/jobs        # PySpark scripts
-    - ./data:/opt/airflow/data                    # Raw CSV input
-    - ./sql:/opt/airflow/sql:ro                  # SQL query files
+    - ./dags:/opt/airflow/dags
+    - ./corporate_pipeline:/opt/airflow/corporate_pipeline
+    - ./data:/opt/airflow/data
+    - ./sql:/opt/airflow/sql:ro
     - airflow_logs:/opt/airflow/logs
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -94,7 +81,7 @@ x-airflow-common:
 services:
 
   # --------------------------------------------------------------------------
-  # PostgreSQL – hosts both the Airflow metadata DB and the retail DB
+  # PostgreSQL
   # --------------------------------------------------------------------------
   postgres:
     image: postgres:15
@@ -104,7 +91,6 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Initialisation script: creates airflow and retail databases/users
       - ./sql/init_db.sh:/docker-entrypoint-initdb.d/init_db.sh:ro
     ports:
       - "5432:5432"
@@ -116,43 +102,10 @@ services:
       start_period: 10s
 
   # --------------------------------------------------------------------------
-  # Apache Spark – standalone cluster master
-  # --------------------------------------------------------------------------
-  spark-master:
-    image: apache/spark:3.5.3
-    hostname: spark-master
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
-    ports:
-      - "7077:7077"   # Spark master RPC port (used by SparkSubmitOperator)
-      - "8080:8080"   # Spark master Web UI
-    volumes:
-      - ./spark/jobs:/opt/spark/jobs:ro
-      # Mount data at the same path Airflow uses so executors can read the CSV
-      - ./data:/opt/airflow/data:ro
-
-  # --------------------------------------------------------------------------
-  # Apache Spark – worker node
-  # --------------------------------------------------------------------------
-  spark-worker:
-    image: apache/spark:3.5.3
-    hostname: spark-worker
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
-    environment:
-      - SPARK_WORKER_MEMORY=2g # the csv is ~43MB uncompressed — fits in 2g with room for Spark overhead
-      - SPARK_WORKER_CORES=2 # can run 2 parallel tasks
-    depends_on:
-      - spark-master
-    volumes:
-      - ./spark/jobs:/opt/spark/jobs:ro
-      # Mount data at the same path Airflow uses so executors can read the CSV
-      - ./data:/opt/airflow/data:ro
-
-  # --------------------------------------------------------------------------
-  # Airflow – one-off initialisation container
+  # Airflow – one-off initialisation
   # --------------------------------------------------------------------------
   airflow-init:
     <<: *airflow-common
-    container_name: airflow-init
     entrypoint: /bin/bash
     command:
       - -c
@@ -169,28 +122,31 @@ services:
     restart: "no"
 
   # --------------------------------------------------------------------------
-  # Airflow – web server (UI at http://localhost:8090)
+  # Airflow – web server (UI at http://localhost:8091)
   # --------------------------------------------------------------------------
   airflow-webserver:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8090:8080"
+      - "8091:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
-  # Airflow – scheduler (submits Spark jobs via SparkSubmitOperator)
+  # Airflow – scheduler
   # --------------------------------------------------------------------------
   airflow-scheduler:
     <<: *airflow-common
-    # The scheduler's container hostname is used as spark.driver.host so that
-    # Spark executors on the worker nodes can connect back to the driver.
     hostname: airflow-scheduler
     command: scheduler
     healthcheck:
@@ -201,35 +157,139 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
-  # Unit tests (profile: test)
-  # Run with: docker compose --profile test run --rm tests
-  # No external services required – PySpark runs in local mode.
+  # FastAPI – corporate ratings REST API (http://localhost:8000)
   # --------------------------------------------------------------------------
-  tests:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: corporate
+      POSTGRES_USER: corporate
+      POSTGRES_PASSWORD: corporate
+    volumes:
+      - ./api:/app/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # FastAPI – test instance pointing at the corporate_test schema
+  # Started automatically when running integration-test or all-tests profiles.
+  # The production `api` service (public schema) is unaffected.
+  # --------------------------------------------------------------------------
+  api-test:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: corporate
+      POSTGRES_USER: corporate
+      POSTGRES_PASSWORD: corporate
+      POSTGRES_SCHEMA: corporate_test
+    volumes:
+      - ./api:/app/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - integration-test
+      - all-tests
+
+  # --------------------------------------------------------------------------
+  # All tests — unit + integration (profile: all-tests)
+  # Run with: docker compose --profile all-tests run --rm all-tests
+  # Requires the full stack to be up and healthy first.
+  # --------------------------------------------------------------------------
+  all-tests:
     build:
       context: ./airflow
       dockerfile: Dockerfile
     working_dir: /app
-    # Run as root so host-mounted files are always readable regardless of
-    # the host user's UID.
     user: "0:0"
     volumes:
-      - .:/app                   # entire project root mounted at /app
+      - .:/app
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
-      # Email notification settings — mirror values from x-airflow-common-env.
-      # Set ALERT_EMAIL to "" to disable test-failure notifications.
+      AIRFLOW_BASE_URL: "http://airflow-webserver:8080"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: corporate
+      POSTGRES_USER: corporate
+      POSTGRES_PASSWORD: corporate
+      POSTGRES_SCHEMA: corporate_test
+      AIRFLOW_TEST_CONN_ID: postgres_corporate_test
+      API_BASE_URL: "http://api-test:8000"
       AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"
       AIRFLOW__SMTP__SMTP_PORT: "587"
       AIRFLOW__SMTP__SMTP_STARTTLS: "true"
       AIRFLOW__SMTP__SMTP_USER: "sender@example.com"
       AIRFLOW__SMTP__SMTP_PASSWORD: ""
       AIRFLOW__SMTP__SMTP_MAIL_FROM: "sender@example.com"
-      ALERT_EMAIL: "alerts@example.com"
-    # pytest picks up pythonpath = ["."] and testpaths from /app/pyproject.toml
+      ALERT_EMAIL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+      airflow-scheduler:
+        condition: service_healthy
+      api-test:
+        condition: service_healthy
+    command: ["python", "-m", "pytest", "tests/unit", "tests/integration", "-v", "--tb=short", "-s"]
+    profiles:
+      - all-tests
+
+  # --------------------------------------------------------------------------
+  # Unit tests (profile: test)
+  # Run with: docker compose --profile test run --rm tests
+  # --------------------------------------------------------------------------
+  tests:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    working_dir: /app
+    user: "0:0"
+    volumes:
+      - .:/app
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"
+      AIRFLOW__SMTP__SMTP_PORT: "587"
+      AIRFLOW__SMTP__SMTP_STARTTLS: "true"
+      AIRFLOW__SMTP__SMTP_USER: "sender@example.com"
+      AIRFLOW__SMTP__SMTP_PASSWORD: ""
+      AIRFLOW__SMTP__SMTP_MAIL_FROM: "sender@example.com"
+      ALERT_EMAIL: ""
     command: ["python", "-m", "pytest", "tests/unit", "-v", "--tb=short"]
     profiles:
       - test
@@ -251,24 +311,28 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       AIRFLOW_BASE_URL: "http://airflow-webserver:8080"
       POSTGRES_HOST: postgres
-      # Email notification settings — mirror values from x-airflow-common-env.
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: corporate
+      POSTGRES_USER: corporate
+      POSTGRES_PASSWORD: corporate
+      POSTGRES_SCHEMA: corporate_test
+      AIRFLOW_TEST_CONN_ID: postgres_corporate_test
+      API_BASE_URL: "http://api-test:8000"
       AIRFLOW__SMTP__SMTP_HOST: "smtp.example.com"
       AIRFLOW__SMTP__SMTP_PORT: "587"
       AIRFLOW__SMTP__SMTP_STARTTLS: "true"
       AIRFLOW__SMTP__SMTP_USER: "sender@example.com"
       AIRFLOW__SMTP__SMTP_PASSWORD: ""
       AIRFLOW__SMTP__SMTP_MAIL_FROM: "sender@example.com"
-      ALERT_EMAIL: "alerts@example.com"
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: retail
-      POSTGRES_USER: retail
-      POSTGRES_PASSWORD: retail
+      ALERT_EMAIL: ""
     depends_on:
       postgres:
         condition: service_healthy
       airflow-webserver:
         condition: service_healthy
       airflow-scheduler:
+        condition: service_healthy
+      api-test:
         condition: service_healthy
     command: ["python", "-m", "pytest", "tests/integration", "-v", "--tb=short", "-s"]
     profiles:

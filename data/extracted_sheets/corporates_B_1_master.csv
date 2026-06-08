@@ -1,0 +1,31 @@
+1,,Rated entity,Company B,,,,,,,,,,
+2,,CorporateSector,Automobiles & Parts,,,,,,,,,,
+4,,Rating methodologies applied,Automotive and Commercial Vehicle Manufacturers Rating Methodology,,,,,,,,,,
+6,,Industry risk,Automotive Suppliers,Automotive and Commercial Vehicle Manufacturers,,,,,,,,,
+7,,Industry risk score,BBB,BB,,,,,,,,,
+8,,Industry weight,0.15,0.85,,,,,,,,,
+9,,Segmentation criteria,EBITDA contribution,,,,,,,,,,
+11,,Reporting Currency/Units,CHF,,,,,,,,,,
+12,,Country of origin,Swiss Confederation,,,,,,,,,,
+13,,Accounting principles,IFRS,,,,,,,,,,
+14,,End of business year,March,,,,,,,,,,
+17,,Business risk profile,BBB,,,,,,,,,,
+18,,(Blended) Industry risk profile,A+,,,,,,,,,,
+19,,Competitive Positioning,A+,,,,,,,,,,
+20,,Market share,BBB+,,,,,,,,,,
+21,,Diversification,A-,,,,,,,,,,
+22,,Operating profitability,BB+,,,,,,,,,,
+23,,Sector/company-specific factors (1),BBB+,,,,,,,,,,
+24,,Sector/company-specific factors (2),,,,,,,,,,,
+26,,Financial risk profile,BB+,,,,,,,,,,
+27,,Leverage,BB+,,,,,,,,,,
+28,,Interest cover,A-,,,,,,,,,,
+29,,Cash flow cover,A-,,,,,,,,,,
+30,,Liquidity,+1 notch,,,,,,,,,,
+34,,[Scope Credit Metrics],2019,2020,2021.0,2022.0,2023.0,2024.0,2025.0,2026E,2027E,2028E,
+35,,Scope-adjusted EBITDA interest cover,1,2,2.0,2.0,2.0,2.0,2.0,3,3,3,Locked
+36,,Scope-adjusted debt/EBITDA,1,2,2.0,2.0,2.0,2.0,2.0,3,3,3,Locked
+37,,Scope-adjusted FFO/debt,1,2,2.0,2.0,2.0,2.0,2.0,3,3,3,Locked
+38,,Scope-adjusted loan/value,1,2,2.0,2.0,3.0,3.0,3.0,3,3,3,Locked
+39,,Scope-adjusted FOCF/debt,1,1,1.0,1.0,3.0,3.0,3.0,3,3,3,Locked
+40,,Liquidity,1,1,1.0,1.0,3.0,3.0,3.0,3,3,3,Locked
