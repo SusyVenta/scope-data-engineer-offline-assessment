@@ -174,17 +174,39 @@ i have run first `make up` then successfully manually ran the production dag fro
 
     make: *** [test] Error 1
     susannaventafridda@Susannas-MacBook-Pro scope-data-engineer-offline-assessment %
-    ```
+```
 
     Outcome:
 
     ```
-    Root cause: psycopg2 opens an implicit transaction on the first SQL statement (it's not in autocommit mode). Without rollback(), connections returned to the pool were in "idle in transaction" state — holding ACCESS SHARE locks. On the next make test, the clean_test_schema TRUNCATE (which needs ACCESS EXCLUSIVE) blocked waiting for those locks. PostgreSQL eventually killed the waiting connections, leaving them in an error state. The first API call after that hit a dead connection → 500.
+        Root cause: psycopg2 opens an implicit transaction on the first SQL statement (it's not in autocommit mode). Without rollback(), connections returned to the pool were in "idle in transaction" state — holding ACCESS SHARE locks. On the next make test, the clean_test_schema TRUNCATE (which needs ACCESS EXCLUSIVE) blocked waiting for those locks. PostgreSQL eventually killed the waiting connections, leaving them in an error state. The first API call after that hit a dead connection → 500.
 
-    Two-layer fix in get_db():
+        Two-layer fix in get_db():
 
-    Health check (SELECT 1) before use — if the connection is broken, discard the entire pool and create a fresh one before the caller ever sees the error
-    conn.rollback() in finally — always return connections to the pool in clean "idle" state, so no locks are held between requests
+        Health check (SELECT 1) before use — if the connection is broken, discard the entire pool and create a fresh one before the caller ever sees the error
+        conn.rollback() in finally — always return connections to the pool in clean "idle" state, so no locks are held between requests
     ```
 
     Manually retested --> fixed
+
+Situation: https://github.com/SusyVenta/scope-data-engineer-offline-assessment/commit/2237886696c437857ccd9c7cc7ab27055a54fdbb
+
+## Manually checking PIPELINE_REQUIREMENTS.md - file content and data model
+
+
+``` 
+when I run queries how can i get the output in a tabular format? can I use an IDE extension? docker compose exec postgres psql -U corporate -d corporate 
+```
+
+Output: updated readme with good plugin to use to query PostreSQL
+
+______________________
+
+```
+I am reviewing the data model and would like to make the following modifications: 1) add unique constraints to each table to make it clear what is the grain. When making assumptions, clarify in a comment. For example: dim_company can have UNIQUE( entity_name, valid_from) which corresponds to the natural composite key. we assume company names can't repeat across countries or sectors. have a dedicted data model section in the readme summarizing all assumptions. the data model section in the readme should also contain a conceptual model section, clarifying the relations. company - sector 1:1, 1 company can have many ratings methodologies applied, not just 2. 1 company can have many associated industry risks. so first we need a dim_indutry_risks table with industry_id and industry_risk. then we need a bridge table where each company_id is associated with an industry risk id and a weight. "industry_risk_segmentation_criteria" I think can be saved at company version level in dim_company to specify based on what we assign the industry weight. reporting_currency, country of origin, accounting principles, end of business year attributes all need to be specified just in dim_company. Can you also clarify the definitions of financial risk and business risk to see if these are specific for the company or are also for the sector? my understanding is these are the company specific ratings. I can't see the formulas since I don't have excel installed. ideally i think these should be calculated from other fields. maybe we can assume these are just metrics we populate in the fact table fact_ratings which should link together a version ofcomany, a version of sector, and add the metrics on top. so measurements / metrics columns are: blended_industry_risk_profile, competitive_positioning, market_share, diversification, operating_profitability, sector_company_specific_factor_1, sector_company_specific_factor_2, leverage, interest_cover, cash_flow_cover, liquidity. aviod repeating fields in existing dim tables. link to them via fk. we probably need a separate fact table fact_scope_credit which links the company id to year, and metric name. so for each credit version we can upload the snapshot of related scope metrics. this is the last section in the MASTER sheet. do not have dim_country and dim_currency as separate dims or we create a snowflake unnecessarily. 
+Adjust all relative code, unit and integration tests.
+Make sure all tests run successfully.
+
+```
+
+At this point I have revised the data model manually because it degenerated in an over complicated model.

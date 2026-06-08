@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS upload_log (
     dag_run_id       TEXT,
     rows_extracted   INT           DEFAULT 0,
     loaded_at_utc    TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    CONSTRAINT uq_upload_filename_hash UNIQUE (source_filename, data_hash)
+    UNIQUE (source_filename, data_hash)
 );

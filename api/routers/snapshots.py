@@ -17,14 +17,34 @@ from api.models import SnapshotOut
 
 router = APIRouter(prefix="/snapshots", tags=["snapshots"])
 
+_SNAPSHOT_COLS = """
+    fr.rating_id AS snapshot_id, fr.upload_id, fr.company_id,
+    dc.entity_name,
+    ds.sector_name AS sector,
+    dc.country,
+    dc.reporting_currency AS currency,
+    fr.business_risk_profile, fr.financial_risk_profile,
+    fr.blended_industry_risk_profile, fr.competitive_positioning,
+    fr.market_share, fr.diversification, fr.operating_profitability,
+    fr.sector_company_specific_factor_1, fr.sector_company_specific_factor_2,
+    fr.leverage, fr.interest_cover, fr.cash_flow_cover, fr.liquidity,
+    fr.data_hash, fr.loaded_at_utc
+"""
+
+_SNAPSHOT_JOIN = """
+    FROM fact_ratings fr
+    LEFT JOIN dim_company dc ON dc.company_id = fr.company_id
+    LEFT JOIN dim_sector  ds ON ds.sector_id  = fr.sector_id
+"""
+
 
 @router.get("/latest", response_model=list[SnapshotOut])
 def get_latest_snapshots():
     """Get the most recent snapshot for each company."""
-    sql = """
-        SELECT DISTINCT ON (entity_name) *
-        FROM fact_rating_snapshot
-        ORDER BY entity_name, loaded_at_utc DESC
+    sql = f"""
+        SELECT DISTINCT ON (dc.entity_name) {_SNAPSHOT_COLS}
+        {_SNAPSHOT_JOIN}
+        ORDER BY dc.entity_name, fr.loaded_at_utc DESC
     """
     with get_db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -46,26 +66,26 @@ def list_snapshots(
     params: list = []
 
     if company_id is not None:
-        conditions.append("company_id = %s")
+        conditions.append("fr.company_id = %s")
         params.append(company_id)
     if from_date is not None:
-        conditions.append("loaded_at_utc >= %s")
+        conditions.append("fr.loaded_at_utc >= %s")
         params.append(from_date)
     if to_date is not None:
-        conditions.append("loaded_at_utc <= %s")
+        conditions.append("fr.loaded_at_utc <= %s")
         params.append(to_date)
     if sector is not None:
-        conditions.append("sector ILIKE %s")
+        conditions.append("ds.sector_name ILIKE %s")
         params.append(f"%{sector}%")
     if country is not None:
-        conditions.append("country ILIKE %s")
+        conditions.append("dc.country ILIKE %s")
         params.append(f"%{country}%")
     if currency is not None:
-        conditions.append("currency = %s")
+        conditions.append("dc.reporting_currency = %s")
         params.append(currency.upper())
 
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
-    sql = f"SELECT * FROM fact_rating_snapshot {where} ORDER BY loaded_at_utc DESC"
+    sql = f"SELECT {_SNAPSHOT_COLS} {_SNAPSHOT_JOIN} {where} ORDER BY fr.loaded_at_utc DESC"
 
     with get_db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -76,7 +96,11 @@ def list_snapshots(
 @router.get("/{snapshot_id}", response_model=SnapshotOut)
 def get_snapshot(snapshot_id: int):
     """Get a specific snapshot by ID."""
-    sql = "SELECT * FROM fact_rating_snapshot WHERE snapshot_id = %s"
+    sql = f"""
+        SELECT {_SNAPSHOT_COLS}
+        {_SNAPSHOT_JOIN}
+        WHERE fr.rating_id = %s
+    """
     with get_db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, (snapshot_id,))

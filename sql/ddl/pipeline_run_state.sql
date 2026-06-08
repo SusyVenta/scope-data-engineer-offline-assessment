@@ -6,10 +6,9 @@ CREATE TABLE IF NOT EXISTS pipeline_run_state (
     dag_run_id       TEXT         NOT NULL,
     started_at_utc   TIMESTAMPTZ  NOT NULL,
     completed_at_utc TIMESTAMPTZ,
-    status           TEXT         NOT NULL DEFAULT 'running',
+    status           TEXT         NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failed')),
     files_staged     INT          NOT NULL DEFAULT 0,
     files_loaded     INT          NOT NULL DEFAULT 0,
     files_skipped    INT          NOT NULL DEFAULT 0,
-    CONSTRAINT uq_pipeline_run_dag_run_id UNIQUE (dag_run_id),
-    CONSTRAINT chk_pipeline_run_status CHECK (status IN ('running', 'success', 'failed'))
+    UNIQUE (dag_run_id)
 );

@@ -325,11 +325,12 @@ class TestLoadRecordDuplicateDetection:
         with (
             patch("corporate_pipeline.loader.hash_already_loaded", return_value=False),
             patch("corporate_pipeline.loader._upsert_sector", return_value=1),
-            patch("corporate_pipeline.loader._upsert_country", return_value=1),
-            patch("corporate_pipeline.loader._upsert_currency", return_value=1),
             patch("corporate_pipeline.loader._insert_upload_log", return_value=42),
             patch("corporate_pipeline.loader._scd2_upsert_company", return_value=7),
-            patch("corporate_pipeline.loader._insert_fact_snapshot"),
+            patch("corporate_pipeline.loader._insert_company_industry_risks"),
+            patch("corporate_pipeline.loader._insert_company_methodologies"),
+            patch("corporate_pipeline.loader._insert_fact_ratings"),
+            patch("corporate_pipeline.loader._insert_fact_scope_credit"),
         ):
             result = load_record(conn, self._make_record("new_hash"))
         assert result == "loaded"

@@ -181,13 +181,29 @@ def clean_test_schema():
     conn = _pg_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                f"TRUNCATE TABLE {PG_SCHEMA}.fact_rating_snapshot, "
-                f"{PG_SCHEMA}.dim_company, {PG_SCHEMA}.upload_log, "
-                f"{PG_SCHEMA}.pipeline_run_state, {PG_SCHEMA}.dim_sector, "
-                f"{PG_SCHEMA}.dim_country, {PG_SCHEMA}.dim_currency "
-                "RESTART IDENTITY CASCADE"
-            )
+            # Truncate every table in the corporate_test schema with CASCADE.
+            # Using a PL/pgSQL loop means this works whether the tables were
+            # created by an old or new DDL version — no hardcoded table list.
+            cur.execute(f"""
+                DO $$
+                DECLARE r record;
+                BEGIN
+                    FOR r IN
+                        SELECT tablename
+                        FROM pg_tables
+                        WHERE schemaname = '{PG_SCHEMA}'
+                    LOOP
+                        BEGIN
+                            EXECUTE format(
+                                'TRUNCATE TABLE %I.%I RESTART IDENTITY CASCADE',
+                                '{PG_SCHEMA}', r.tablename
+                            );
+                        EXCEPTION WHEN OTHERS THEN
+                            NULL;
+                        END;
+                    END LOOP;
+                END $$;
+            """)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -313,19 +329,13 @@ class TestDimensionTables:
         count = _pg_scalar("SELECT COUNT(*) FROM dim_sector")
         assert count > 0
 
-    def test_dim_country_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM dim_country")
+    def test_dim_industry_risk_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM dim_industry_risk")
         assert count > 0
 
-    def test_dim_currency_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM dim_currency")
+    def test_dim_rating_methodology_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM dim_rating_methodology")
         assert count > 0
-
-    def test_dim_currency_codes_are_3_letter_uppercase(self, dag_run_id):
-        bad = _pg_scalar(
-            "SELECT COUNT(*) FROM dim_currency WHERE currency_code !~ '^[A-Z]{3}$'"
-        )
-        assert bad == 0
 
     def test_dim_company_has_current_rows(self, dag_run_id):
         count = _pg_scalar("SELECT COUNT(*) FROM dim_company WHERE is_current = TRUE")
@@ -359,72 +369,146 @@ class TestDimensionTables:
         )
         assert orphan == 0
 
-    def test_dim_company_fk_to_country(self, dag_run_id):
-        orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM dim_company dc "
-            "LEFT JOIN dim_country dco ON dco.country_id = dc.country_id "
-            "WHERE dc.country_id IS NOT NULL AND dco.country_id IS NULL"
-        )
-        assert orphan == 0
-
-    def test_dim_company_fk_to_currency(self, dag_run_id):
-        orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM dim_company dc "
-            "LEFT JOIN dim_currency dcu ON dcu.currency_id = dc.currency_id "
-            "WHERE dc.currency_id IS NOT NULL AND dcu.currency_id IS NULL"
-        )
-        assert orphan == 0
-
-
-# ---------------------------------------------------------------------------
-# fact_rating_snapshot table
-# ---------------------------------------------------------------------------
-
-class TestFactRatingSnapshot:
-    def test_table_has_rows(self, dag_run_id):
-        count = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot")
+    def test_company_industry_risk_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM company_industry_risk")
         assert count > 0
 
-    def test_entity_name_not_null(self, dag_run_id):
-        bad = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_rating_snapshot "
-            "WHERE entity_name IS NULL OR entity_name = ''"
+    def test_company_industry_risk_fk_to_company(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM company_industry_risk cir "
+            "LEFT JOIN dim_company dc ON dc.company_id = cir.company_id "
+            "WHERE dc.company_id IS NULL"
         )
-        assert bad == 0
+        assert orphan == 0
+
+    def test_company_industry_risk_fk_to_dim_industry_risk(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM company_industry_risk cir "
+            "LEFT JOIN dim_industry_risk dir ON dir.industry_risk_id = cir.industry_risk_id "
+            "WHERE dir.industry_risk_id IS NULL"
+        )
+        assert orphan == 0
+
+    def test_company_methodology_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM company_methodology")
+        assert count > 0
+
+    def test_company_methodology_fk_to_company(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM company_methodology cm "
+            "LEFT JOIN dim_company dc ON dc.company_id = cm.company_id "
+            "WHERE dc.company_id IS NULL"
+        )
+        assert orphan == 0
+
+    def test_company_methodology_fk_to_dim_rating_methodology(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM company_methodology cm "
+            "LEFT JOIN dim_rating_methodology drm ON drm.methodology_id = cm.methodology_id "
+            "WHERE drm.methodology_id IS NULL"
+        )
+        assert orphan == 0
+
+
+# ---------------------------------------------------------------------------
+# fact_ratings table
+# ---------------------------------------------------------------------------
+
+class TestFactRatings:
+    def test_table_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
+        assert count > 0
 
     def test_no_null_data_hash(self, dag_run_id):
-        bad = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot WHERE data_hash IS NULL")
+        bad = _pg_scalar("SELECT COUNT(*) FROM fact_ratings WHERE data_hash IS NULL")
         assert bad == 0
 
     def test_data_hash_unique_in_fact(self, dag_run_id):
-        total = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot")
-        distinct = _pg_scalar("SELECT COUNT(DISTINCT data_hash) FROM fact_rating_snapshot")
-        assert total == distinct, "Duplicate data_hash values found in fact_rating_snapshot"
+        total = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
+        distinct = _pg_scalar("SELECT COUNT(DISTINCT data_hash) FROM fact_ratings")
+        assert total == distinct, "Duplicate data_hash values found in fact_ratings"
 
     def test_loaded_at_utc_populated(self, dag_run_id):
-        bad = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot WHERE loaded_at_utc IS NULL")
+        bad = _pg_scalar("SELECT COUNT(*) FROM fact_ratings WHERE loaded_at_utc IS NULL")
         assert bad == 0
 
     def test_fk_to_upload_log(self, dag_run_id):
         orphan = _pg_scalar(
-            "SELECT COUNT(*) FROM fact_rating_snapshot f "
-            "LEFT JOIN upload_log u ON u.upload_id = f.upload_id "
+            "SELECT COUNT(*) FROM fact_ratings fr "
+            "LEFT JOIN upload_log u ON u.upload_id = fr.upload_id "
             "WHERE u.upload_id IS NULL"
         )
         assert orphan == 0
 
-    def test_snapshot_count_matches_upload_rows_extracted(self, dag_run_id):
-        """rows_extracted in upload_log should equal snapshots inserted for that upload."""
+    def test_fk_to_dim_company(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM fact_ratings fr "
+            "LEFT JOIN dim_company dc ON dc.company_id = fr.company_id "
+            "WHERE dc.company_id IS NULL"
+        )
+        assert orphan == 0
+
+    def test_rating_count_matches_upload_rows_extracted(self, dag_run_id):
+        """rows_extracted in upload_log should equal fact_ratings inserted for that upload."""
         mismatched = _pg_scalar(
             "SELECT COUNT(*) FROM ("
-            "  SELECT u.upload_id, u.rows_extracted, COUNT(f.snapshot_id) AS actual "
+            "  SELECT u.upload_id, u.rows_extracted, COUNT(fr.rating_id) AS actual "
             "  FROM upload_log u "
-            "  LEFT JOIN fact_rating_snapshot f ON f.upload_id = u.upload_id "
+            "  LEFT JOIN fact_ratings fr ON fr.upload_id = u.upload_id "
             "  GROUP BY u.upload_id, u.rows_extracted "
-            "  HAVING u.rows_extracted IS NOT NULL AND u.rows_extracted <> COUNT(f.snapshot_id)"
+            "  HAVING u.rows_extracted IS NOT NULL AND u.rows_extracted <> COUNT(fr.rating_id)"
             ") t"
         )
         assert mismatched == 0
+
+
+# ---------------------------------------------------------------------------
+# fact_scope_credit table
+# ---------------------------------------------------------------------------
+
+class TestFactScopeCredit:
+    def test_table_has_rows(self, dag_run_id):
+        count = _pg_scalar("SELECT COUNT(*) FROM fact_scope_credit")
+        assert count > 0
+
+    def test_no_null_metric_name(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM fact_scope_credit WHERE metric_name IS NULL OR metric_name = ''"
+        )
+        assert bad == 0
+
+    def test_no_null_year(self, dag_run_id):
+        bad = _pg_scalar(
+            "SELECT COUNT(*) FROM fact_scope_credit WHERE year IS NULL OR year = ''"
+        )
+        assert bad == 0
+
+    def test_no_duplicates(self, dag_run_id):
+        dups = _pg_scalar(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT upload_id, metric_name, year, COUNT(*) "
+            "  FROM fact_scope_credit "
+            "  GROUP BY upload_id, metric_name, year "
+            "  HAVING COUNT(*) > 1"
+            ") t"
+        )
+        assert dups == 0
+
+    def test_fk_to_upload_log(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM fact_scope_credit fsc "
+            "LEFT JOIN upload_log u ON u.upload_id = fsc.upload_id "
+            "WHERE u.upload_id IS NULL"
+        )
+        assert orphan == 0
+
+    def test_fk_to_dim_company(self, dag_run_id):
+        orphan = _pg_scalar(
+            "SELECT COUNT(*) FROM fact_scope_credit fsc "
+            "LEFT JOIN dim_company dc ON dc.company_id = fsc.company_id "
+            "WHERE dc.company_id IS NULL"
+        )
+        assert orphan == 0
 
 
 # ---------------------------------------------------------------------------
@@ -447,13 +531,13 @@ class TestIdempotency:
             f"Expected files_loaded=0 on second run, got {row[0]['files_loaded']}"
         )
 
-    def test_fact_snapshot_count_unchanged_after_second_run(self, second_dag_run_id, dag_run_id):
-        """The total snapshot count must be the same after the idempotent second run."""
-        count_first_run = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot")
-        assert count_first_run > 0, "No snapshots after first run"
-        count_after_second = _pg_scalar("SELECT COUNT(*) FROM fact_rating_snapshot")
+    def test_fact_ratings_count_unchanged_after_second_run(self, second_dag_run_id, dag_run_id):
+        """The total rating count must be the same after the idempotent second run."""
+        count_first_run = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
+        assert count_first_run > 0, "No ratings after first run"
+        count_after_second = _pg_scalar("SELECT COUNT(*) FROM fact_ratings")
         assert count_first_run == count_after_second, (
-            "Second run added rows to fact_rating_snapshot despite unchanged files"
+            "Second run added rows to fact_ratings despite unchanged files"
         )
 
 
